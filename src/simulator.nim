@@ -122,43 +122,83 @@ proc simulateFight*(config: SimulationConfig, db: StateDB = nil): SimulationResu
         db.recordTerminalState(state, "Natural termination")
       break
 
-    # Get legal moves for current fighter
-    let legal = legalMoves(state, currentFighter)
+    # Build action sequence for current fighter's turn
+    var actionSeq = createEmptySequence()
+    var turnMoveCount = 0
 
-    if legal.len == 0:
-      # Unknown state - no legal moves
+    # Keep adding moves to sequence until time runs out or no compatible moves
+    while true:
+      # Get legal moves for current state
+      let legal = legalMoves(state, currentFighter)
+
+      if legal.len == 0:
+        # No legal moves at all
+        if turnMoveCount == 0:
+          # Couldn't even start a turn - unknown state
+          if config.verbose:
+            echo fmt"\n[!] Unknown state reached at move {moveCount}"
+            echo toAnalysisStr(state)
+
+          if db != nil and config.logUnknownStates:
+            db.logUnknownState(state, fmt"No legal moves for {currentFighter} at move {moveCount}")
+
+          unknownStateReached = true
+          break  # Exit inner while
+        else:
+          # Already did some moves, end turn normally
+          break  # Exit inner while
+
+      # Filter for moves that can be added to current sequence
+      var compatibleMoves: seq[Move] = @[]
+      for move in legal:
+        if canAddToSequence(actionSeq, move):
+          compatibleMoves.add(move)
+
+      if compatibleMoves.len == 0:
+        # No more moves can be added to sequence
+        break  # Exit inner while
+
+      # Select random compatible move
+      let selectedMove = compatibleMoves[rand(compatibleMoves.len - 1)]
+
+      # Add to sequence
+      addMoveToSequence(actionSeq, selectedMove)
+      inc turnMoveCount
+
       if config.verbose:
-        echo fmt"\n[!] Unknown state reached at move {moveCount}"
-        echo toAnalysisStr(state)
+        if turnMoveCount == 1:
+          echo fmt"\n[{moveCount}] {currentFighter}:"
+        echo fmt"  → {selectedMove.name} (time: {selectedMove.timeCost:.2f}s)"
 
-      if db != nil and config.logUnknownStates:
-        db.logUnknownState(state, fmt"No legal moves for {currentFighter} at move {moveCount}")
+      # Store old hash for first move of turn
+      let oldHash = if turnMoveCount == 1: state.stateHash else: ""
 
-      unknownStateReached = true
-      break
+      # Apply move
+      selectedMove.apply(state, currentFighter)
 
-    # Select random move (uniform for now)
-    let selectedMove = legal[rand(legal.len - 1)]
+      # Recompute hash
+      state.stateHash = computeStateHash(state)
 
-    if config.verbose:
-      echo fmt"\n[{moveCount}] {currentFighter} uses {selectedMove.name}"
+      # Record transition (only for first move of turn for now)
+      if db != nil and turnMoveCount == 1:
+        db.recordTransition(oldHash, state.stateHash, selectedMove.id, currentFighter)
 
-    # Store old hash for transition recording
-    let oldHash = state.stateHash
+      inc moveCount
 
-    # Apply move
-    selectedMove.apply(state, currentFighter)
+      # Random chance to end turn early (70% continue, 30% stop)
+      # This prevents always maxing out the action sequence
+      if rand(1.0) < 0.3:
+        break  # Exit inner while
 
-    # Recompute hash
-    state.stateHash = computeStateHash(state)
+    # Check if unknown state was reached
+    if unknownStateReached:
+      break  # Exit outer while
 
-    # Record transition
-    if db != nil:
-      db.recordTransition(oldHash, state.stateHash, selectedMove.id, currentFighter)
+    if config.verbose and turnMoveCount > 0:
+      echo fmt"  Total turn time: {actionSeq.totalTimeCost:.2f}s, energy: {actionSeq.totalEnergyCost:.2f}"
 
     # Switch fighters
     currentFighter = if currentFighter == FighterA: FighterB else: FighterA
-    inc moveCount
 
     if config.verbose and moveCount mod 10 == 0:
       echo fmt"  [{moveCount}] {toCompactRepr(state)}"

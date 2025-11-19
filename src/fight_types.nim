@@ -7,6 +7,12 @@ type
     FighterA = "A"
     FighterB = "B"
 
+  LimbType* = enum
+    LeftArm
+    RightArm
+    LeftLeg
+    RightLeg
+
   StanceKind* = enum
     Orthodox        # left foot forward
     Southpaw       # right foot forward
@@ -111,6 +117,7 @@ type
     name*: string
     category*: MoveCategory
     energyCost*: float       # 0.0 (trivial) to 1.0 (exhausting)
+    timeCost*: float         # seconds this action takes (for turn budget)
     reach*: float            # meters
     height*: HeightLevel
     angleBias*: float        # preferred angle relative to centerline
@@ -121,6 +128,8 @@ type
     apply*: MoveApplication
     styleOrigins*: seq[string]  # which arts this comes from
     followups*: seq[string]     # likely next move IDs
+    limbsUsed*: set[LimbType]  # which limbs this move uses
+    canCombine*: bool        # can be combined with other moves in same turn
 
   StyleProfile* = object
     id*: string
@@ -130,6 +139,13 @@ type
     distanceBias*: Table[DistanceKind, float]
     riskTolerance*: float    # -1.0 (conservative) to 1.0 (aggressive)
     adaptability*: float     # 0.0 (rigid) to 1.0 (flexible)
+
+  ActionSequence* = object
+    ## A sequence of moves performed simultaneously or in quick succession
+    moves*: seq[Move]
+    totalTimeCost*: float
+    totalEnergyCost*: float
+    limbsUsed*: set[LimbType]
 
   UnknownState* = object
     ## Logged when simulation reaches a state with no legal moves
