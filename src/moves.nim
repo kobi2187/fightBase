@@ -129,6 +129,16 @@ proc createJab*(side: string = "left", origin: string = "Boxing"): Move =
       balanceChange: -0.02,
       heightChange: 0.0
     ),
+    physicsEffect: PhysicsEffect(
+      linearMomentum: 0.2,      # Small forward momentum
+      rotationalMomentum: 0.0,  # No rotation
+      hipRotationDelta: 5.0,    # Slight hip engagement
+      torsoRotationDelta: 10.0, # Torso rotates into punch
+      weightShift: 0.05,        # Slight weight forward
+      commitmentLevel: 0.1,     # Low commitment
+      recoveryFramesOnMiss: 1,  # Quick recovery
+      recoveryFramesOnHit: 1
+    ),
     styleOrigins: @[origin],
     followups: @["cross_right", "hook_left", "step_back"],
     limbsUsed: limbUsed,

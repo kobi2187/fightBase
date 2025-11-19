@@ -53,6 +53,20 @@ type
     stance*: StanceKind
     balance*: float          # 0.0 (falling) to 1.0 (perfectly stable)
 
+  Momentum* = object
+    ## Tracks physical momentum from moves
+    linear*: float           # forward/backward momentum (m/s)
+    rotational*: float       # spinning momentum (deg/s)
+    decayRate*: float        # how fast momentum dissipates (per turn)
+
+  BiomechanicalState* = object
+    ## Tracks body configuration affecting available moves
+    hipRotation*: float      # degrees rotated from neutral (-180 to +180)
+    torsoRotation*: float    # degrees rotated from hips
+    weightDistribution*: float # 0.0 (back leg) to 1.0 (front leg)
+    recovering*: bool        # in recovery from committed move
+    recoveryFrames*: int     # frames until fully recovered
+
   LimbStatus* = object
     free*: bool              # can move freely
     extended*: bool          # currently extended/committed
@@ -67,6 +81,8 @@ type
     damage*: float           # 0.0 (unhurt) to 1.0 (incapacitated)
     liveSide*: SideKind      # which side of opponent we're on
     control*: ControlKind    # grappling control state
+    momentum*: Momentum      # current physical momentum
+    biomech*: BiomechanicalState  # body configuration state
 
   FightState* = object
     a*, b*: Fighter
@@ -82,6 +98,17 @@ type
     angleChange*: float      # degrees rotation
     balanceChange*: float    # change to balance
     heightChange*: float     # change in height (for jumps, drops)
+
+  PhysicsEffect* = object
+    ## Physical consequences of a move
+    linearMomentum*: float    # momentum generated (m/s)
+    rotationalMomentum*: float # rotational momentum (deg/s)
+    hipRotationDelta*: float  # change in hip rotation
+    torsoRotationDelta*: float # change in torso rotation
+    weightShift*: float       # change in weight distribution
+    commitmentLevel*: float   # 0.0-1.0, how committed the move is
+    recoveryFramesOnMiss*: int # extra recovery if move misses
+    recoveryFramesOnHit*: int  # recovery even if move hits
 
   MoveCategory* = enum
     ## Canonical biomechanical categories
@@ -124,6 +151,7 @@ type
     recoveryTime*: float     # seconds until next move possible
     lethalPotential*: float  # 0.0 (no threat) to 1.0 (finisher)
     positionShift*: PositionDelta
+    physicsEffect*: PhysicsEffect # momentum and biomechanical effects
     prerequisites*: MovePrerequisite
     apply*: MoveApplication
     styleOrigins*: seq[string]  # which arts this comes from

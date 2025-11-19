@@ -2,6 +2,7 @@
 ## These functions determine what moves are physically possible
 
 import fight_types
+import physics
 import std/math
 
 # ============================================================================
@@ -179,6 +180,9 @@ proc checkBasicPrerequisites*(state: FightState, who: FighterID, move: Move): bo
   if not canReachTarget(fighter, move, state.distance): return false
   if not hasFreeLimbs(fighter, 1): return false
   if not isStanceCompatible(fighter, move): return false
+
+  # Physics-based constraints (momentum, biomechanics)
+  if not validateMovePhysics(fighter, move): return false
 
   # Category-specific checks
   case move.category
