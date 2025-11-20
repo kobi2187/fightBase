@@ -7,120 +7,322 @@
     body {
       margin: 0;
       font-family: Arial, sans-serif;
-      overflow: hidden;
       background: #2a2a2a;
+      display: flex;
     }
+
     #controls {
-      position: absolute;
-      top: 10px;
-      left: 10px;
+      width: 380px;
+      height: 100vh;
+      overflow-y: auto;
       background: rgba(255,255,255,0.95);
       padding: 20px;
-      border-radius: 8px;
-      max-width: 400px;
-      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-      z-index: 100;
+      box-shadow: 2px 0 8px rgba(0,0,0,0.3);
     }
-    #info {
-      position: absolute;
-      bottom: 10px;
-      left: 10px;
-      background: rgba(0,0,0,0.7);
-      color: white;
-      padding: 10px;
-      border-radius: 4px;
-      font-size: 12px;
-      font-family: monospace;
+
+    #canvas-container {
+      flex: 1;
+      height: 100vh;
     }
+
     h2 {
-      margin: 0 0 10px 0;
-      font-size: 16px;
+      margin: 0 0 15px 0;
+      font-size: 18px;
     }
-    textarea {
-      width: 100%;
-      height: 80px;
-      font-family: monospace;
-      font-size: 10px;
-      padding: 8px;
-      border: 1px solid #ccc;
+
+    h3 {
+      margin: 20px 0 10px 0;
+      font-size: 14px;
+      color: #333;
+      border-bottom: 2px solid #4CAF50;
+      padding-bottom: 5px;
+    }
+
+    .fighter-select {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .fighter-btn {
+      flex: 1;
+      padding: 10px;
+      border: 2px solid #ddd;
+      background: white;
+      cursor: pointer;
       border-radius: 4px;
-      resize: vertical;
+      font-weight: bold;
     }
+
+    .fighter-btn.active {
+      border-color: #4CAF50;
+      background: #e8f5e9;
+    }
+
+    .slider-group {
+      margin-bottom: 15px;
+    }
+
+    .slider-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 3px;
+      color: #555;
+    }
+
+    .slider-value {
+      font-weight: bold;
+      color: #4CAF50;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      margin: 5px 0;
+    }
+
     button {
       background: #4CAF50;
       color: white;
       border: none;
-      padding: 8px 16px;
+      padding: 10px 16px;
       font-size: 13px;
       border-radius: 4px;
       cursor: pointer;
-      margin-top: 8px;
-      margin-right: 5px;
+      width: 100%;
+      margin-top: 10px;
     }
+
     button:hover {
       background: #45a049;
     }
+
     .example-btn {
       background: #2196F3;
       font-size: 11px;
-      padding: 5px 10px;
+      padding: 8px;
+      margin-top: 5px;
     }
+
     .example-btn:hover {
       background: #0b7dda;
     }
-    #canvas-container {
-      width: 100vw;
-      height: 100vh;
-    }
-    label {
-      display: block;
-      font-weight: bold;
-      margin-bottom: 5px;
-      font-size: 13px;
-    }
-    .stats {
-      font-size: 11px;
-      margin-top: 10px;
+
+    .distance-select {
+      width: 100%;
       padding: 8px;
-      background: #f5f5f5;
+      margin-top: 10px;
+      border: 1px solid #ddd;
       border-radius: 4px;
     }
-    .note {
-      font-size: 10px;
+
+    .info {
+      font-size: 11px;
       color: #666;
-      margin-top: 5px;
-      font-style: italic;
+      background: #f5f5f5;
+      padding: 8px;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+
+    #mpn-output {
+      font-family: monospace;
+      font-size: 10px;
+      background: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+      word-break: break-all;
+      max-height: 100px;
+      overflow-y: auto;
     }
   </style>
 </head>
 <body>
   <div id="controls">
-    <h2>🥋 3D Mannequin Viewer (MPN)</h2>
-    <label>MPN String (Mannequin Position Notation):</label>
-    <textarea id="mpn" placeholder="Fighter A / Fighter B / distance&#10;lean.rot.shoulders.elbows.hips.knees.stance"></textarea>
-    <div class="note">MPN = Pure physical pose (joint angles only)</div>
+    <h2>🥋 Mannequin Pose Editor</h2>
 
-    <div>
-      <button onclick="loadMPN()">Load Position</button>
-      <button onclick="resetCamera()">Reset View</button>
+    <div class="fighter-select">
+      <button class="fighter-btn active" onclick="selectFighter('A')">Fighter A (Red)</button>
+      <button class="fighter-btn" onclick="selectFighter('B')">Fighter B (Blue)</button>
     </div>
 
-    <div style="margin-top: 10px;">
-      <button onclick="generateRandomState()" style="background: #FF9800; width: 100%;">🎲 Generate Random Pose</button>
+    <h3>Body Position</h3>
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Lean Forward/Back</span>
+        <span class="slider-value" id="val-lean-fb">0 cm</span>
+      </div>
+      <input type="range" id="lean-fb" min="-20" max="20" value="0" step="1" oninput="updatePose()">
     </div>
 
-    <div style="margin-top: 10px;">
-      <button class="example-btn" onclick="loadExample(1)">Neutral</button>
-      <button class="example-btn" onclick="loadExample(2)">Jab</button>
-      <button class="example-btn" onclick="loadExample(3)">Round Kick</button>
-      <button class="example-btn" onclick="loadExample(4)">Grapple</button>
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Lean Left/Right</span>
+        <span class="slider-value" id="val-lean-lr">0 cm</span>
+      </div>
+      <input type="range" id="lean-lr" min="-15" max="15" value="0" step="1" oninput="updatePose()">
     </div>
 
-    <div class="stats" id="stats"></div>
-  </div>
+    <h3>Torso Rotation</h3>
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Hip Rotation</span>
+        <span class="slider-value" id="val-hip-rot">0°</span>
+      </div>
+      <input type="range" id="hip-rot" min="-45" max="45" value="0" step="5" oninput="updatePose()">
+    </div>
 
-  <div id="info">
-    Controls: Mouse drag = rotate | Scroll = zoom | Right drag = pan
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Torso Rotation (relative to hips)</span>
+        <span class="slider-value" id="val-torso-rot">0°</span>
+      </div>
+      <input type="range" id="torso-rot" min="-45" max="45" value="0" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Neck/Head Turn</span>
+        <span class="slider-value" id="val-neck-rot">0°</span>
+      </div>
+      <input type="range" id="neck-rot" min="-60" max="60" value="0" step="5" oninput="updatePose()">
+    </div>
+
+    <h3>Arms</h3>
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Left Shoulder Pitch (forward/up)</span>
+        <span class="slider-value" id="val-l-shoulder-p">0°</span>
+      </div>
+      <input type="range" id="l-shoulder-p" min="-60" max="180" value="0" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Left Shoulder Roll (raise sideways)</span>
+        <span class="slider-value" id="val-l-shoulder-r">0°</span>
+      </div>
+      <input type="range" id="l-shoulder-r" min="0" max="180" value="0" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Left Elbow Bend</span>
+        <span class="slider-value" id="val-l-elbow">90°</span>
+      </div>
+      <input type="range" id="l-elbow" min="0" max="150" value="90" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Right Shoulder Pitch (forward/up)</span>
+        <span class="slider-value" id="val-r-shoulder-p">0°</span>
+      </div>
+      <input type="range" id="r-shoulder-p" min="-60" max="180" value="0" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Right Shoulder Roll (raise sideways)</span>
+        <span class="slider-value" id="val-r-shoulder-r">0°</span>
+      </div>
+      <input type="range" id="r-shoulder-r" min="0" max="180" value="0" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Right Elbow Bend</span>
+        <span class="slider-value" id="val-r-elbow">90°</span>
+      </div>
+      <input type="range" id="r-elbow" min="0" max="150" value="90" step="5" oninput="updatePose()">
+    </div>
+
+    <h3>Legs</h3>
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Left Hip Pitch (kick forward/back)</span>
+        <span class="slider-value" id="val-l-hip-p">0°</span>
+      </div>
+      <input type="range" id="l-hip-p" min="-30" max="120" value="0" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Left Hip Roll (sideways)</span>
+        <span class="slider-value" id="val-l-hip-r">0°</span>
+      </div>
+      <input type="range" id="l-hip-r" min="-45" max="45" value="0" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Left Knee Bend</span>
+        <span class="slider-value" id="val-l-knee">15°</span>
+      </div>
+      <input type="range" id="l-knee" min="0" max="140" value="15" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Right Hip Pitch (kick forward/back)</span>
+        <span class="slider-value" id="val-r-hip-p">0°</span>
+      </div>
+      <input type="range" id="r-hip-p" min="-30" max="120" value="0" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Right Hip Roll (sideways)</span>
+        <span class="slider-value" id="val-r-hip-r">0°</span>
+      </div>
+      <input type="range" id="r-hip-r" min="-45" max="45" value="0" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Right Knee Bend</span>
+        <span class="slider-value" id="val-r-knee">15°</span>
+      </div>
+      <input type="range" id="r-knee" min="0" max="140" value="15" step="5" oninput="updatePose()">
+    </div>
+
+    <h3>Stance</h3>
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Stance Width</span>
+        <span class="slider-value" id="val-stance">40 cm</span>
+      </div>
+      <input type="range" id="stance" min="20" max="80" value="40" step="2" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Distance Between Fighters</span>
+      </div>
+      <select class="distance-select" id="distance" onchange="updatePose()">
+        <option value="c">Contact (1.5m)</option>
+        <option value="s">Short (2.5m)</option>
+        <option value="m" selected>Medium (4m)</option>
+        <option value="l">Long (6m)</option>
+        <option value="v">Very Long (8m)</option>
+      </select>
+    </div>
+
+    <button onclick="resetPose()">Reset Current Fighter</button>
+    <button onclick="resetBoth()">Reset Both Fighters</button>
+    <button onclick="randomPose()" style="background: #FF9800;">🎲 Random Pose</button>
+
+    <h3>Preset Poses</h3>
+    <button class="example-btn" onclick="loadPreset('neutral')">Neutral Stance</button>
+    <button class="example-btn" onclick="loadPreset('jab')">Jab</button>
+    <button class="example-btn" onclick="loadPreset('guard')">Guard Position</button>
+    <button class="example-btn" onclick="loadPreset('kick')">Front Kick</button>
+
+    <div class="info">
+      <strong>MPN Output:</strong>
+      <div id="mpn-output"></div>
+    </div>
   </div>
 
   <div id="canvas-container"></div>
@@ -128,43 +330,54 @@
   <!-- Three.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script>
-    // Scene setup
-    let scene, camera, renderer, controls;
+    // State
+    let scene, camera, renderer;
     let fighterA, fighterB;
-    let groundPlane;
+    let currentFighter = 'A';
 
-    // MPN Examples: lean.rotation.shoulders.elbows.hips.knees.stance
-    const examples = {
-      // Neutral stance - Fixed commas
-      1: "0,0.0,0,0.20,5,20,5.90,90.10,0,-5,0.15,15.40,90/0,0.0,0,0.20,5,20,5.90,90.-10,0,5,0.15,15.40,90/m",
+    // Pose data for both fighters
+    let poseA = createNeutralPose();
+    let poseB = createNeutralPose();
 
-      // Jab pose (Fighter A jabbing) - Fixed commas
-      2: "8,0.8,12,0.-35,8,-30,10.15,90.12,0,-5,0.20,15.40,90/0,0.0,0,0.20,5,20,5.90,90.-10,0,5,0.15,15.40,90/s",
-
-      // Round kick (Fighter B kicking) - Fixed commas
-      3: "0,0.0,0,0.20,5,20,5.90,90.10,0,-5,0.15,15.40,90/0,-15.60,30,0.20,5,20,5.90,90.10,0,80,45.25,40.15,90/m",
-
-      // Close grappling stance - Fixed commas
-      4: "10,0.15,20,10.30,15,30,15.45,45.15,0,15,0.45,45.70,90/5,0.-10,15,8.25,12,25,12.40,50.-15,0,-15,0.40,40.70,90/c"
-    };
+    function createNeutralPose() {
+      return {
+        leanForwardBack: 0,
+        leanLeftRight: 0,
+        hipRotation: 0,
+        torsoRotation: 0,
+        neckRotation: 0,
+        leftShoulderPitch: 0,
+        leftShoulderRoll: 0,
+        rightShoulderPitch: 0,
+        rightShoulderRoll: 0,
+        leftElbowBend: 90,
+        rightElbowBend: 90,
+        leftHipPitch: 0,
+        leftHipRoll: 0,
+        rightHipPitch: 0,
+        rightHipRoll: 0,
+        leftKneeBend: 15,
+        rightKneeBend: 15,
+        stanceWidth: 40
+      };
+    }
 
     function init() {
       // Scene
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x2a2a2a);
-      scene.fog = new THREE.Fog(0x2a2a2a, 10, 50);
 
       // Camera
       camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-      camera.position.set(0, 3, 8);
+      camera.position.set(0, 2, 6);
       camera.lookAt(0, 2, 0);
 
       // Renderer
+      const container = document.getElementById('canvas-container');
       renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setSize(container.clientWidth, container.clientHeight);
       renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      document.getElementById('canvas-container').appendChild(renderer.domElement);
+      container.appendChild(renderer.domElement);
 
       // Lights
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -173,190 +386,143 @@
       const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
       mainLight.position.set(5, 10, 5);
       mainLight.castShadow = true;
-      mainLight.shadow.camera.left = -10;
-      mainLight.shadow.camera.right = 10;
-      mainLight.shadow.camera.top = 10;
-      mainLight.shadow.camera.bottom = -10;
       scene.add(mainLight);
-
-      const fillLight = new THREE.DirectionalLight(0x8888ff, 0.3);
-      fillLight.position.set(-5, 5, -5);
-      scene.add(fillLight);
 
       // Ground
       const groundGeometry = new THREE.PlaneGeometry(20, 20);
-      const groundMaterial = new THREE.MeshStandardMaterial({
-        color: 0x444444,
-        roughness: 0.8,
-        metalness: 0.2
-      });
-      groundPlane = new THREE.Mesh(groundGeometry, groundMaterial);
+      const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x444444 });
+      const groundPlane = new THREE.Mesh(groundGeometry, groundMaterial);
       groundPlane.rotation.x = -Math.PI / 2;
       groundPlane.receiveShadow = true;
       scene.add(groundPlane);
 
-      // Grid
       const gridHelper = new THREE.GridHelper(20, 20, 0x666666, 0x333333);
       scene.add(gridHelper);
 
-      // Mouse controls (simplified orbit)
-      setupMouseControls();
-
       // Create mannequins
-      fighterA = createMannequin(0xff4444); // Red
-      fighterB = createMannequin(0x4444ff); // Blue
+      fighterA = createMannequin(0xff4444);
+      fighterB = createMannequin(0x4444ff);
 
-      fighterA.position.set(-3, 0, 0);
-      fighterB.position.set(3, 0, 0);
+      fighterA.position.set(-2, 0, 0);
+      fighterB.position.set(2, 0, 0);
+      fighterA.rotation.y = Math.PI / 2;
+      fighterB.rotation.y = -Math.PI / 2;
 
       scene.add(fighterA);
       scene.add(fighterB);
 
-      // Load first example
-      loadExample(1);
+      // Mouse controls
+      setupMouseControls();
+
+      // Initial update
+      updatePose();
 
       // Render loop
       animate();
 
-      // Handle window resize
       window.addEventListener('resize', onWindowResize);
     }
 
     function createMannequin(color) {
       const mannequin = new THREE.Group();
-      mannequin.userData.initialJoints = {}; // Store initial transforms
+      const material = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.3 });
 
-      const material = new THREE.MeshStandardMaterial({
-        color: color,
-        roughness: 0.5,
-        metalness: 0.3
-      });
-
-      // Body parts (simplified mannequin with named joints)
       // Head
-      const headGeo = new THREE.SphereGeometry(0.2, 16, 16);
-      const head = new THREE.Mesh(headGeo, material);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), material);
       head.position.y = 3.6;
       head.castShadow = true;
       head.name = 'head';
       mannequin.add(head);
 
       // Neck
-      const neckGeo = new THREE.CylinderGeometry(0.08, 0.1, 0.15, 8);
-      const neck = new THREE.Mesh(neckGeo, material);
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.15, 8), material);
       neck.position.y = 3.4;
       neck.castShadow = true;
       neck.name = 'neck';
       mannequin.add(neck);
 
       // Torso
-      const torsoGeo = new THREE.BoxGeometry(0.5, 0.8, 0.3);
-      const torso = new THREE.Mesh(torsoGeo, material);
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 0.3), material);
       torso.position.y = 2.9;
       torso.castShadow = true;
       torso.name = 'torso';
       mannequin.add(torso);
 
       // Hips
-      const hipsGeo = new THREE.BoxGeometry(0.45, 0.3, 0.3);
-      const hips = new THREE.Mesh(hipsGeo, material);
+      const hips = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.3, 0.3), material);
       hips.position.y = 2.35;
       hips.castShadow = true;
       hips.name = 'hips';
       mannequin.add(hips);
 
-      // Arms with proper joint structure
+      // Arms
       function createArm(side, sideName) {
         const armGroup = new THREE.Group();
         armGroup.name = sideName + 'Arm';
 
-        // Shoulder joint
         const shoulder = new THREE.Group();
         shoulder.position.set(side * 0.3, 3.15, 0);
         shoulder.name = sideName + 'Shoulder';
 
-        // Upper arm
-        const upperArmGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.4, 8);
-        const upperArm = new THREE.Mesh(upperArmGeo, material);
+        const upperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.4, 8), material);
         upperArm.position.y = -0.2;
         upperArm.castShadow = true;
-        upperArm.name = sideName + 'UpperArm';
         shoulder.add(upperArm);
 
-        // Elbow joint
         const elbow = new THREE.Group();
         elbow.position.y = -0.4;
         elbow.name = sideName + 'Elbow';
 
-        // Lower arm
-        const lowerArmGeo = new THREE.CylinderGeometry(0.05, 0.04, 0.4, 8);
-        const lowerArm = new THREE.Mesh(lowerArmGeo, material);
+        const lowerArm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.4, 8), material);
         lowerArm.position.y = -0.2;
         lowerArm.castShadow = true;
-        lowerArm.name = sideName + 'LowerArm';
         elbow.add(lowerArm);
 
-        // Hand
-        const handGeo = new THREE.SphereGeometry(0.07, 8, 8);
-        const hand = new THREE.Mesh(handGeo, material);
+        const hand = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), material);
         hand.position.y = -0.4;
         hand.castShadow = true;
-        hand.name = sideName + 'Hand';
         elbow.add(hand);
 
         shoulder.add(elbow);
         armGroup.add(shoulder);
-
         return armGroup;
       }
 
       mannequin.add(createArm(-1, 'left'));
       mannequin.add(createArm(1, 'right'));
 
-      // Legs with proper joint structure
+      // Legs
       function createLeg(side, sideName) {
         const legGroup = new THREE.Group();
         legGroup.name = sideName + 'Leg';
-        legGroup.userData.initialX = side * 0.15; // Store initial stance
+        legGroup.userData.initialX = side * 0.15;
 
-        // Hip joint
         const hip = new THREE.Group();
         hip.position.set(side * 0.15, 2.2, 0);
         hip.name = sideName + 'Hip';
 
-        // Upper leg
-        const upperLegGeo = new THREE.CylinderGeometry(0.08, 0.07, 0.6, 8);
-        const upperLeg = new THREE.Mesh(upperLegGeo, material);
+        const upperLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.6, 8), material);
         upperLeg.position.y = -0.3;
         upperLeg.castShadow = true;
-        upperLeg.name = sideName + 'UpperLeg';
         hip.add(upperLeg);
 
-        // Knee joint
         const knee = new THREE.Group();
         knee.position.y = -0.6;
         knee.name = sideName + 'Knee';
 
-        // Lower leg
-        const lowerLegGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.6, 8);
-        const lowerLeg = new THREE.Mesh(lowerLegGeo, material);
+        const lowerLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.6, 8), material);
         lowerLeg.position.y = -0.3;
         lowerLeg.castShadow = true;
-        lowerLeg.name = sideName + 'LowerLeg';
         knee.add(lowerLeg);
 
-        // Foot
-        const footGeo = new THREE.BoxGeometry(0.12, 0.1, 0.25);
-        const foot = new THREE.Mesh(footGeo, material);
+        const foot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.25), material);
         foot.position.y = -0.6;
         foot.position.z = 0.08;
         foot.castShadow = true;
-        foot.name = sideName + 'Foot';
         knee.add(foot);
 
         hip.add(knee);
         legGroup.add(hip);
-
         return legGroup;
       }
 
@@ -366,337 +532,324 @@
       return mannequin;
     }
 
-    function parseMPN(mpnString) {
-      // Format: fighter_a_mpn/fighter_b_mpn/distance
-      const parts = mpnString.trim().split('/');
-      if (parts.length !== 3) throw new Error('Invalid MPN format: expected fighter_a/fighter_b/distance');
+    function selectFighter(fighter) {
+      currentFighter = fighter;
+      document.querySelectorAll('.fighter-btn').forEach(btn => btn.classList.remove('active'));
+      event.target.classList.add('active');
+      loadPoseToUI(fighter === 'A' ? poseA : poseB);
+    }
 
+    function loadPoseToUI(pose) {
+      document.getElementById('lean-fb').value = pose.leanForwardBack;
+      document.getElementById('lean-lr').value = pose.leanLeftRight;
+      document.getElementById('hip-rot').value = pose.hipRotation;
+      document.getElementById('torso-rot').value = pose.torsoRotation;
+      document.getElementById('neck-rot').value = pose.neckRotation;
+      document.getElementById('l-shoulder-p').value = pose.leftShoulderPitch;
+      document.getElementById('l-shoulder-r').value = pose.leftShoulderRoll;
+      document.getElementById('r-shoulder-p').value = pose.rightShoulderPitch;
+      document.getElementById('r-shoulder-r').value = pose.rightShoulderRoll;
+      document.getElementById('l-elbow').value = pose.leftElbowBend;
+      document.getElementById('r-elbow').value = pose.rightElbowBend;
+      document.getElementById('l-hip-p').value = pose.leftHipPitch;
+      document.getElementById('l-hip-r').value = pose.leftHipRoll;
+      document.getElementById('r-hip-p').value = pose.rightHipPitch;
+      document.getElementById('r-hip-r').value = pose.rightHipRoll;
+      document.getElementById('l-knee').value = pose.leftKneeBend;
+      document.getElementById('r-knee').value = pose.rightKneeBend;
+      document.getElementById('stance').value = pose.stanceWidth;
+      updatePose();
+    }
+
+    function readPoseFromUI() {
       return {
-        fighterA: parseMannequinPose(parts[0]),
-        fighterB: parseMannequinPose(parts[1]),
-        distance: parts[2]
+        leanForwardBack: parseFloat(document.getElementById('lean-fb').value),
+        leanLeftRight: parseFloat(document.getElementById('lean-lr').value),
+        hipRotation: parseFloat(document.getElementById('hip-rot').value),
+        torsoRotation: parseFloat(document.getElementById('torso-rot').value),
+        neckRotation: parseFloat(document.getElementById('neck-rot').value),
+        leftShoulderPitch: parseFloat(document.getElementById('l-shoulder-p').value),
+        leftShoulderRoll: parseFloat(document.getElementById('l-shoulder-r').value),
+        rightShoulderPitch: parseFloat(document.getElementById('r-shoulder-p').value),
+        rightShoulderRoll: parseFloat(document.getElementById('r-shoulder-r').value),
+        leftElbowBend: parseFloat(document.getElementById('l-elbow').value),
+        rightElbowBend: parseFloat(document.getElementById('r-elbow').value),
+        leftHipPitch: parseFloat(document.getElementById('l-hip-p').value),
+        leftHipRoll: parseFloat(document.getElementById('l-hip-r').value),
+        rightHipPitch: parseFloat(document.getElementById('r-hip-p').value),
+        rightHipRoll: parseFloat(document.getElementById('r-hip-r').value),
+        leftKneeBend: parseFloat(document.getElementById('l-knee').value),
+        rightKneeBend: parseFloat(document.getElementById('r-knee').value),
+        stanceWidth: parseFloat(document.getElementById('stance').value)
       };
     }
 
-    function parseMannequinPose(mpn) {
-      // Format: lean.rotation.shoulders.elbows.hips.knees.stance
-      const parts = mpn.split('.');
-      if (parts.length !== 7) {
-        throw new Error(`Invalid MPN pose format: expected 7 parts, got ${parts.length}`);
+    function updatePose() {
+      const pose = readPoseFromUI();
+
+      if (currentFighter === 'A') {
+        poseA = pose;
+      } else {
+        poseB = pose;
       }
 
-      // Lean
-      const lean = parts[0].split(',');
+      // Update value displays
+      document.getElementById('val-lean-fb').textContent = pose.leanForwardBack + ' cm';
+      document.getElementById('val-lean-lr').textContent = pose.leanLeftRight + ' cm';
+      document.getElementById('val-hip-rot').textContent = pose.hipRotation + '°';
+      document.getElementById('val-torso-rot').textContent = pose.torsoRotation + '°';
+      document.getElementById('val-neck-rot').textContent = pose.neckRotation + '°';
+      document.getElementById('val-l-shoulder-p').textContent = pose.leftShoulderPitch + '°';
+      document.getElementById('val-l-shoulder-r').textContent = pose.leftShoulderRoll + '°';
+      document.getElementById('val-r-shoulder-p').textContent = pose.rightShoulderPitch + '°';
+      document.getElementById('val-r-shoulder-r').textContent = pose.rightShoulderRoll + '°';
+      document.getElementById('val-l-elbow').textContent = pose.leftElbowBend + '°';
+      document.getElementById('val-r-elbow').textContent = pose.rightElbowBend + '°';
+      document.getElementById('val-l-hip-p').textContent = pose.leftHipPitch + '°';
+      document.getElementById('val-l-hip-r').textContent = pose.leftHipRoll + '°';
+      document.getElementById('val-r-hip-p').textContent = pose.rightHipPitch + '°';
+      document.getElementById('val-r-hip-r').textContent = pose.rightHipRoll + '°';
+      document.getElementById('val-l-knee').textContent = pose.leftKneeBend + '°';
+      document.getElementById('val-r-knee').textContent = pose.rightKneeBend + '°';
+      document.getElementById('val-stance').textContent = pose.stanceWidth + ' cm';
 
-      // Rotation
-      const rot = parts[1].split(',');
+      // Apply poses
+      resetMannequinPose(fighterA);
+      resetMannequinPose(fighterB);
+      poseMannequin(fighterA, poseA);
+      poseMannequin(fighterB, poseB);
 
-      // Shoulders
-      const shoulders = parts[2].split(',');
+      // Update distance
+      const distance = document.getElementById('distance').value;
+      const distanceMap = { 'c': 1.5, 's': 2.5, 'm': 4, 'l': 6, 'v': 8 };
+      const dist = distanceMap[distance];
+      fighterA.position.x = -dist / 2;
+      fighterB.position.x = dist / 2;
 
-      // Elbows
-      const elbows = parts[3].split(',');
+      // Update MPN output
+      updateMPNOutput();
+    }
 
-      // Hips
-      const hips = parts[4].split(',');
+    function updateMPNOutput() {
+      const distance = document.getElementById('distance').value;
+      const mpnA = poseToMPN(poseA);
+      const mpnB = poseToMPN(poseB);
+      document.getElementById('mpn-output').textContent = `${mpnA}/${mpnB}/${distance}`;
+    }
 
-      // Knees
-      const knees = parts[5].split(',');
-
-      // Stance
-      const stance = parts[6].split(',');
-
-      return {
-        leanForwardBack: parseFloat(lean[0]),
-        leanLeftRight: parseFloat(lean[1]),
-        hipRotation: parseFloat(rot[0]),
-        torsoRotation: parseFloat(rot[1]),
-        neckRotation: parseFloat(rot[2]),
-        leftShoulderPitch: parseFloat(shoulders[0]),
-        leftShoulderRoll: parseFloat(shoulders[1]),
-        rightShoulderPitch: parseFloat(shoulders[2]),
-        rightShoulderRoll: parseFloat(shoulders[3]),
-        leftElbowBend: parseFloat(elbows[0]),
-        rightElbowBend: parseFloat(elbows[1]),
-        leftHipPitch: parseFloat(hips[0]),
-        leftHipRoll: parseFloat(hips[1]),
-        rightHipPitch: parseFloat(hips[2]),
-        rightHipRoll: parseFloat(hips[3]),
-        leftKneeBend: parseFloat(knees[0]),
-        rightKneeBend: parseFloat(knees[1]),
-        stanceWidth: parseFloat(stance[0]),
-        facingAngle: parseFloat(stance[1])
-      };
+    function poseToMPN(pose) {
+      return `${pose.leanForwardBack},${pose.leanLeftRight}.${pose.hipRotation},${pose.torsoRotation},${pose.neckRotation}.${pose.leftShoulderPitch},${pose.leftShoulderRoll},${pose.rightShoulderPitch},${pose.rightShoulderRoll}.${pose.leftElbowBend},${pose.rightElbowBend}.${pose.leftHipPitch},${pose.leftHipRoll},${pose.rightHipPitch},${pose.rightHipRoll}.${pose.leftKneeBend},${pose.rightKneeBend}.${pose.stanceWidth},90`;
     }
 
     function resetMannequinPose(mannequin) {
-      // Reset all rotations to zero
-      mannequin.rotation.set(0, 0, 0);
-
+      mannequin.rotation.set(0, mannequin.rotation.y, 0);
       mannequin.traverse((obj) => {
         if (obj.isGroup || obj.isMesh) {
-          obj.rotation.set(0, 0, 0);
+          if (obj.name !== 'leftLeg' && obj.name !== 'rightLeg') {
+            obj.rotation.set(0, 0, 0);
+          }
         }
       });
 
-      // Reset leg positions to default
       const leftLeg = mannequin.getObjectByName('leftLeg');
       const rightLeg = mannequin.getObjectByName('rightLeg');
-      if (leftLeg && leftLeg.userData.initialX !== undefined) {
-        leftLeg.position.x = 0;
-        const leftHip = leftLeg.getObjectByName('leftHip');
-        if (leftHip) leftHip.position.x = leftLeg.userData.initialX;
-      }
-      if (rightLeg && rightLeg.userData.initialX !== undefined) {
-        rightLeg.position.x = 0;
-        const rightHip = rightLeg.getObjectByName('rightHip');
-        if (rightHip) rightHip.position.x = rightLeg.userData.initialX;
-      }
+      if (leftLeg) leftLeg.position.x = 0;
+      if (rightLeg) rightLeg.position.x = 0;
     }
 
     function poseMannequin(mannequin, pose) {
-      // Reset first to avoid accumulation
-      resetMannequinPose(mannequin);
+      // Lean
+      mannequin.rotation.z = pose.leanForwardBack * 0.01 * 0.1;
+      mannequin.rotation.x = pose.leanLeftRight * 0.01 * 0.1;
 
-      // Apply lean (convert cm to radians for visual effect)
-      const leanZ = pose.leanForwardBack * 0.01; // cm to m
-      const leanX = pose.leanLeftRight * 0.01;
-      mannequin.rotation.z = leanZ * 0.1;  // Scale for visual effect
-      mannequin.rotation.x = leanX * 0.1;
-
-      // Apply hip rotation
+      // Body rotations
       const hips = mannequin.getObjectByName('hips');
-      if (hips) {
-        hips.rotation.y = THREE.MathUtils.degToRad(pose.hipRotation);
-      }
-
-      // Apply torso rotation
       const torso = mannequin.getObjectByName('torso');
-      if (torso) {
-        torso.rotation.y = THREE.MathUtils.degToRad(pose.torsoRotation);
-      }
-
-      // Apply neck rotation
       const neck = mannequin.getObjectByName('neck');
       const head = mannequin.getObjectByName('head');
-      if (neck) {
-        neck.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
-      }
-      if (head) {
-        head.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
-      }
 
-      // Apply shoulder rotations
-      const leftShoulder = mannequin.getObjectByName('leftShoulder');
-      const rightShoulder = mannequin.getObjectByName('rightShoulder');
+      if (hips) hips.rotation.y = THREE.MathUtils.degToRad(pose.hipRotation);
+      if (torso) torso.rotation.y = THREE.MathUtils.degToRad(pose.torsoRotation);
+      if (neck) neck.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
+      if (head) head.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
 
-      if (leftShoulder) {
-        // Pitch = forward/back (X-axis)
-        leftShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.leftShoulderPitch);
-        // Roll = raise sideways (Z-axis)
-        leftShoulder.rotation.z = THREE.MathUtils.degToRad(pose.leftShoulderRoll);
+      // Shoulders
+      const lShoulder = mannequin.getObjectByName('leftShoulder');
+      const rShoulder = mannequin.getObjectByName('rightShoulder');
+
+      if (lShoulder) {
+        lShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.leftShoulderPitch);
+        lShoulder.rotation.z = THREE.MathUtils.degToRad(pose.leftShoulderRoll);
       }
 
-      if (rightShoulder) {
-        rightShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.rightShoulderPitch);
-        rightShoulder.rotation.z = THREE.MathUtils.degToRad(-pose.rightShoulderRoll);
+      if (rShoulder) {
+        rShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.rightShoulderPitch);
+        rShoulder.rotation.z = THREE.MathUtils.degToRad(-pose.rightShoulderRoll);
       }
 
-      // Apply elbow bends (negative for correct bend direction)
-      const leftElbow = mannequin.getObjectByName('leftElbow');
-      const rightElbow = mannequin.getObjectByName('rightElbow');
+      // Elbows
+      const lElbow = mannequin.getObjectByName('leftElbow');
+      const rElbow = mannequin.getObjectByName('rightElbow');
 
-      if (leftElbow) {
-        leftElbow.rotation.x = THREE.MathUtils.degToRad(pose.leftElbowBend);
+      if (lElbow) lElbow.rotation.x = THREE.MathUtils.degToRad(pose.leftElbowBend);
+      if (rElbow) rElbow.rotation.x = THREE.MathUtils.degToRad(pose.rightElbowBend);
+
+      // Hips
+      const lHip = mannequin.getObjectByName('leftHip');
+      const rHip = mannequin.getObjectByName('rightHip');
+
+      if (lHip) {
+        lHip.rotation.x = THREE.MathUtils.degToRad(-pose.leftHipPitch);
+        lHip.rotation.z = THREE.MathUtils.degToRad(pose.leftHipRoll);
       }
 
-      if (rightElbow) {
-        rightElbow.rotation.x = THREE.MathUtils.degToRad(pose.rightElbowBend);
+      if (rHip) {
+        rHip.rotation.x = THREE.MathUtils.degToRad(-pose.rightHipPitch);
+        rHip.rotation.z = THREE.MathUtils.degToRad(-pose.rightHipRoll);
       }
 
-      // Apply hip rotations
-      const leftHip = mannequin.getObjectByName('leftHip');
-      const rightHip = mannequin.getObjectByName('rightHip');
+      // Knees
+      const lKnee = mannequin.getObjectByName('leftKnee');
+      const rKnee = mannequin.getObjectByName('rightKnee');
 
-      if (leftHip) {
-        leftHip.rotation.x = THREE.MathUtils.degToRad(-pose.leftHipPitch);
-        leftHip.rotation.z = THREE.MathUtils.degToRad(pose.leftHipRoll);
-      }
+      if (lKnee) lKnee.rotation.x = THREE.MathUtils.degToRad(pose.leftKneeBend);
+      if (rKnee) rKnee.rotation.x = THREE.MathUtils.degToRad(pose.rightKneeBend);
 
-      if (rightHip) {
-        rightHip.rotation.x = THREE.MathUtils.degToRad(-pose.rightHipPitch);
-        rightHip.rotation.z = THREE.MathUtils.degToRad(-pose.rightHipRoll);
-      }
-
-      // Apply knee bends
-      const leftKnee = mannequin.getObjectByName('leftKnee');
-      const rightKnee = mannequin.getObjectByName('rightKnee');
-
-      if (leftKnee) {
-        leftKnee.rotation.x = THREE.MathUtils.degToRad(pose.leftKneeBend);
-      }
-
-      if (rightKnee) {
-        rightKnee.rotation.x = THREE.MathUtils.degToRad(pose.rightKneeBend);
-      }
-
-      // Stance width (adjust leg group positions)
-      const stanceWidthM = pose.stanceWidth / 100.0; // cm to m
+      // Stance width
       const leftLeg = mannequin.getObjectByName('leftLeg');
       const rightLeg = mannequin.getObjectByName('rightLeg');
+      const stanceM = pose.stanceWidth / 100.0;
 
-      if (leftLeg) {
-        leftLeg.position.x = -stanceWidthM / 2;
-      }
-      if (rightLeg) {
-        rightLeg.position.x = stanceWidthM / 2;
-      }
+      if (leftLeg) leftLeg.position.x = -stanceM / 2;
+      if (rightLeg) rightLeg.position.x = stanceM / 2;
     }
 
-    function loadMPN() {
-      const mpnInput = document.getElementById('mpn').value.trim();
-      if (!mpnInput) {
-        alert('Please enter an MPN string');
-        return;
-      }
-
-      try {
-        const state = parseMPN(mpnInput);
-
-        // Position fighters based on distance
-        const distanceMap = { 'c': 1.5, 's': 2.5, 'm': 4, 'l': 6, 'v': 8 };
-        const dist = distanceMap[state.distance] || 4;
-
-        fighterA.position.x = -dist / 2;
-        fighterB.position.x = dist / 2;
-
-        fighterA.rotation.y = Math.PI / 2;
-        fighterB.rotation.y = -Math.PI / 2;
-
-        // Pose mannequins
-        poseMannequin(fighterA, state.fighterA);
-        poseMannequin(fighterB, state.fighterB);
-
-        // Update stats
-        updateStats(state);
-
-      } catch (e) {
-        alert('Error parsing MPN: ' + e.message);
-        console.error(e);
+    function resetPose() {
+      if (currentFighter === 'A') {
+        poseA = createNeutralPose();
+        loadPoseToUI(poseA);
+      } else {
+        poseB = createNeutralPose();
+        loadPoseToUI(poseB);
       }
     }
 
-    function updateStats(state) {
-      const statsDiv = document.getElementById('stats');
-      statsDiv.innerHTML = `
-        <strong>Fighter A (Red):</strong><br>
-        Hip: ${state.fighterA.hipRotation.toFixed(0)}° | Torso: ${state.fighterA.torsoRotation.toFixed(0)}°<br>
-        Lean: ${state.fighterA.leanForwardBack.toFixed(0)}cm fwd, ${state.fighterA.leanLeftRight.toFixed(0)}cm side<br>
-        <br>
-        <strong>Fighter B (Blue):</strong><br>
-        Hip: ${state.fighterB.hipRotation.toFixed(0)}° | Torso: ${state.fighterB.torsoRotation.toFixed(0)}°<br>
-        Lean: ${state.fighterB.leanForwardBack.toFixed(0)}cm fwd, ${state.fighterB.leanLeftRight.toFixed(0)}cm side<br>
-        <br>
-        <strong>Distance:</strong> ${state.distance}
-      `;
+    function resetBoth() {
+      poseA = createNeutralPose();
+      poseB = createNeutralPose();
+      loadPoseToUI(currentFighter === 'A' ? poseA : poseB);
     }
 
-    function loadExample(num) {
-      document.getElementById('mpn').value = examples[num];
-      loadMPN();
+    function randomPose() {
+      const pose = {
+        leanForwardBack: Math.floor((Math.random() - 0.5) * 30),
+        leanLeftRight: Math.floor((Math.random() - 0.5) * 20),
+        hipRotation: Math.floor((Math.random() - 0.5) * 60),
+        torsoRotation: Math.floor((Math.random() - 0.5) * 60),
+        neckRotation: Math.floor((Math.random() - 0.5) * 80),
+        leftShoulderPitch: Math.floor(-30 + Math.random() * 150),
+        leftShoulderRoll: Math.floor(Math.random() * 120),
+        rightShoulderPitch: Math.floor(-30 + Math.random() * 150),
+        rightShoulderRoll: Math.floor(Math.random() * 120),
+        leftElbowBend: Math.floor(Math.random() * 140),
+        rightElbowBend: Math.floor(Math.random() * 140),
+        leftHipPitch: Math.floor(-20 + Math.random() * 100),
+        leftHipRoll: Math.floor((Math.random() - 0.5) * 60),
+        rightHipPitch: Math.floor(-20 + Math.random() * 100),
+        rightHipRoll: Math.floor((Math.random() - 0.5) * 60),
+        leftKneeBend: Math.floor(Math.random() * 120),
+        rightKneeBend: Math.floor(Math.random() * 120),
+        stanceWidth: Math.floor(25 + Math.random() * 50)
+      };
+
+      if (currentFighter === 'A') {
+        poseA = pose;
+      } else {
+        poseB = pose;
+      }
+      loadPoseToUI(pose);
     }
 
-    function resetCamera() {
-      camera.position.set(0, 3, 8);
-      camera.lookAt(0, 2, 0);
-      cameraAngle = 0;
-      cameraHeight = 3;
-      cameraDistance = 8;
-    }
-
-    function generateRandomState() {
-      // Generate random valid mannequin pose (MPN format)
-      function randomPose() {
-        // Lean: -20 to +20 cm forward/back, -10 to +10 cm left/right
-        const leanFB = Math.floor((Math.random() - 0.5) * 40);
-        const leanLR = Math.floor((Math.random() - 0.5) * 20);
-
-        // Rotation: hip -45 to +45, torso -35 to +35, neck -30 to +30
-        const hipRot = Math.floor((Math.random() - 0.5) * 90);
-        const torsoRot = Math.floor((Math.random() - 0.5) * 70);
-        const neckRot = Math.floor((Math.random() - 0.5) * 60);
-
-        // Shoulders: pitch -60 to +60, roll 0 to +90
-        const lShoulderP = Math.floor((Math.random() - 0.5) * 120);
-        const lShoulderR = Math.floor(Math.random() * 90);
-        const rShoulderP = Math.floor((Math.random() - 0.5) * 120);
-        const rShoulderR = Math.floor(Math.random() * 90);
-
-        // Elbows: 0 to 150 degrees
-        const lElbow = Math.floor(Math.random() * 150);
-        const rElbow = Math.floor(Math.random() * 150);
-
-        // Hips: pitch -20 to +80, roll -30 to +30
-        const lHipP = Math.floor(-20 + Math.random() * 100);
-        const lHipR = Math.floor((Math.random() - 0.5) * 60);
-        const rHipP = Math.floor(-20 + Math.random() * 100);
-        const rHipR = Math.floor((Math.random() - 0.5) * 60);
-
-        // Knees: 0 to 90 degrees
-        const lKnee = Math.floor(Math.random() * 90);
-        const rKnee = Math.floor(Math.random() * 90);
-
-        // Stance: 20-80cm width, facing 0-180
-        const stanceWidth = Math.floor(20 + Math.random() * 60);
-        const facing = Math.floor(Math.random() * 180);
-
-        // Format: lean.rotation.shoulders.elbows.hips.knees.stance
-        return `${leanFB},${leanLR}.${hipRot},${torsoRot},${neckRot}.${lShoulderP},${lShoulderR},${rShoulderP},${rShoulderR}.${lElbow},${rElbow}.${lHipP},${lHipR},${rHipP},${rHipR}.${lKnee},${rKnee}.${stanceWidth},${facing}`;
+    function loadPreset(preset) {
+      let pose;
+      switch(preset) {
+        case 'neutral':
+          pose = createNeutralPose();
+          break;
+        case 'jab':
+          pose = {
+            ...createNeutralPose(),
+            leanForwardBack: 8,
+            hipRotation: 10,
+            torsoRotation: 15,
+            leftShoulderPitch: 45,
+            leftShoulderRoll: 0,
+            leftElbowBend: 20,
+            rightShoulderPitch: -20,
+            rightShoulderRoll: 30
+          };
+          break;
+        case 'guard':
+          pose = {
+            ...createNeutralPose(),
+            leftShoulderPitch: 60,
+            leftShoulderRoll: 20,
+            rightShoulderPitch: 60,
+            rightShoulderRoll: 20,
+            leftElbowBend: 100,
+            rightElbowBend: 100
+          };
+          break;
+        case 'kick':
+          pose = {
+            ...createNeutralPose(),
+            leanForwardBack: -5,
+            hipRotation: 15,
+            torsoRotation: -10,
+            rightHipPitch: 90,
+            rightKneeBend: 30,
+            leftKneeBend: 25,
+            stanceWidth: 25
+          };
+          break;
       }
 
-      // Distance: varied
-      const distances = ['c', 's', 's', 'm', 'm', 'm', 'l'];
-      const distance = distances[Math.floor(Math.random() * distances.length)];
-
-      // Generate MPN
-      const fighterA = randomPose();
-      const fighterB = randomPose();
-      const mpn = `${fighterA}/${fighterB}/${distance}`;
-
-      // Set and load
-      document.getElementById('mpn').value = mpn;
-      loadMPN();
-
-      console.log('Generated random pose:', mpn);
+      if (currentFighter === 'A') {
+        poseA = pose;
+      } else {
+        poseB = pose;
+      }
+      loadPoseToUI(pose);
     }
 
-    // Simplified mouse controls
+    // Mouse controls
     let mouseDown = false;
-    let mouseX = 0;
-    let mouseY = 0;
+    let mouseX = 0, mouseY = 0;
     let cameraAngle = 0;
-    let cameraHeight = 3;
-    let cameraDistance = 8;
+    let cameraHeight = 2;
+    let cameraDistance = 6;
 
     function setupMouseControls() {
-      renderer.domElement.addEventListener('mousedown', (e) => {
+      const container = document.getElementById('canvas-container');
+
+      container.addEventListener('mousedown', (e) => {
         mouseDown = true;
         mouseX = e.clientX;
         mouseY = e.clientY;
       });
 
-      renderer.domElement.addEventListener('mouseup', () => {
+      container.addEventListener('mouseup', () => {
         mouseDown = false;
       });
 
-      renderer.domElement.addEventListener('mousemove', (e) => {
+      container.addEventListener('mousemove', (e) => {
         if (!mouseDown) return;
 
         const deltaX = e.clientX - mouseX;
         const deltaY = e.clientY - mouseY;
 
         cameraAngle += deltaX * 0.01;
-        cameraHeight = Math.max(0.5, Math.min(6, cameraHeight - deltaY * 0.01));
+        cameraHeight = Math.max(0.5, Math.min(5, cameraHeight - deltaY * 0.01));
 
         mouseX = e.clientX;
         mouseY = e.clientY;
@@ -704,9 +857,9 @@
         updateCamera();
       });
 
-      renderer.domElement.addEventListener('wheel', (e) => {
+      container.addEventListener('wheel', (e) => {
         e.preventDefault();
-        cameraDistance = Math.max(2, Math.min(15, cameraDistance + e.deltaY * 0.01));
+        cameraDistance = Math.max(2, Math.min(12, cameraDistance + e.deltaY * 0.01));
         updateCamera();
       });
     }
@@ -724,9 +877,10 @@
     }
 
     function onWindowResize() {
-      camera.aspect = window.innerWidth / window.innerHeight;
+      const container = document.getElementById('canvas-container');
+      camera.aspect = container.clientWidth / container.clientHeight;
       camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setSize(container.clientWidth, container.clientHeight);
     }
 
     // Initialize
