@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>FPN 3D Mannequin Viewer</title>
+  <title>MPN 3D Mannequin Viewer</title>
   <style>
     body {
       margin: 0;
@@ -17,7 +17,7 @@
       background: rgba(255,255,255,0.95);
       padding: 20px;
       border-radius: 8px;
-      max-width: 350px;
+      max-width: 400px;
       box-shadow: 0 4px 8px rgba(0,0,0,0.3);
       z-index: 100;
     }
@@ -38,9 +38,9 @@
     }
     textarea {
       width: 100%;
-      height: 60px;
+      height: 80px;
       font-family: monospace;
-      font-size: 11px;
+      font-size: 10px;
       padding: 8px;
       border: 1px solid #ccc;
       border-radius: 4px;
@@ -85,28 +85,35 @@
       background: #f5f5f5;
       border-radius: 4px;
     }
+    .note {
+      font-size: 10px;
+      color: #666;
+      margin-top: 5px;
+      font-style: italic;
+    }
   </style>
 </head>
 <body>
   <div id="controls">
-    <h2>🥊 3D Mannequin Viewer</h2>
-    <label>FPN String:</label>
-    <textarea id="fpn" placeholder="o.95.15.0.3,5.10,15,55,0,0.----/s.90.20.5.-1,0.-5,-10,45,0,0.----/m/A/5"></textarea>
+    <h2>🥋 3D Mannequin Viewer (MPN)</h2>
+    <label>MPN String (Mannequin Position Notation):</label>
+    <textarea id="mpn" placeholder="Fighter A / Fighter B / distance&#10;lean.rot.shoulders.elbows.hips.knees.stance"></textarea>
+    <div class="note">MPN = Pure physical pose (joint angles only)</div>
 
     <div>
-      <button onclick="loadFPN()">Load Position</button>
+      <button onclick="loadMPN()">Load Position</button>
       <button onclick="resetCamera()">Reset View</button>
     </div>
 
     <div style="margin-top: 10px;">
-      <button onclick="generateRandomState()" style="background: #FF9800; width: 100%;">🎲 Generate Random State</button>
+      <button onclick="generateRandomState()" style="background: #FF9800; width: 100%;">🎲 Generate Random Pose</button>
     </div>
 
     <div style="margin-top: 10px;">
-      <button class="example-btn" onclick="loadExample(1)">Fresh</button>
-      <button class="example-btn" onclick="loadExample(2)">Exchange</button>
-      <button class="example-btn" onclick="loadExample(3)">Close</button>
-      <button class="example-btn" onclick="loadExample(4)">Damaged</button>
+      <button class="example-btn" onclick="loadExample(1)">Neutral</button>
+      <button class="example-btn" onclick="loadExample(2)">Jab</button>
+      <button class="example-btn" onclick="loadExample(3)">Round Kick</button>
+      <button class="example-btn" onclick="loadExample(4)">Grapple</button>
     </div>
 
     <div class="stats" id="stats"></div>
@@ -126,11 +133,19 @@
     let fighterA, fighterB;
     let groundPlane;
 
+    // MPN Examples: lean.rotation.shoulders.elbows.hips.knees.stance
     const examples = {
-      1: "o.100.0.0.0,0.0,0,50,0,0.----/s.100.0.0.0,0.0,0,50,0,0.----/m/A/0",
-      2: "o.85.25.5.2,10.15,20,55,0,0.--E-/s.80.30.8.-1,5.-10,-15,45,0,0.-E--/s/B/5",
-      3: "o.70.40.12.3,15.25,30,60,0,0.----/s.65.45.15.1,8.-15,-25,40,1,2.----/c/A/8",
-      4: "o.90.20.2.1,5.10,15,55,0,0.----/s.50.35.35.-2,0.-20,-30,35,1,4.X-E-/s/A/12"
+      // Neutral stance
+      1: "0,0.0,0,0.20,5,20,5.90,90.10,0,-5,0.15,15.40,90/0,0.0,0,0.20,5,20,5.90,90.-10,0,5,0.15,15.40,90/m",
+
+      // Jab pose (Fighter A jabbing)
+      2: "8,0.8,12,0.-35,8,-30,10.15,90.12,0,-5,0.20,15.40,90/0,0.0,0,0.20,5,20,5.90,90.-10,0,5,0.15,15.40,90/s",
+
+      // Round kick (Fighter B kicking)
+      3: "0,0.0,0,0.20,5,20,5.90,90.10,0,-5,0.15,15.40,90/0,-15.60,30,0.20,5,20,5.90,90.10,0,80,45.25,40.15,90/m",
+
+      // Close grappling stance (both fighters close, wrestling)
+      4: "10,0.15,20,10.30,15,30,15.45,45.15,0,15,0.45,45.70,90/5,0.-10,15,8.25,12,25,12.40,50.-15,0,-15,0.40,40.70,90/c"
     };
 
     function init() {
@@ -216,15 +231,7 @@
         metalness: 0.3
       });
 
-      const damagedMaterial = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(color).multiplyScalar(0.5),
-        roughness: 0.8,
-        metalness: 0.1,
-        transparent: true,
-        opacity: 0.6
-      });
-
-      // Body parts (simplified mannequin)
+      // Body parts (simplified mannequin with named joints)
       // Head
       const headGeo = new THREE.SphereGeometry(0.2, 16, 16);
       const head = new THREE.Mesh(headGeo, material);
@@ -238,6 +245,7 @@
       const neck = new THREE.Mesh(neckGeo, material);
       neck.position.y = 3.4;
       neck.castShadow = true;
+      neck.name = 'neck';
       mannequin.add(neck);
 
       // Torso
@@ -256,177 +264,269 @@
       hips.name = 'hips';
       mannequin.add(hips);
 
-      // Arms (simplified as cylinders)
-      function createArm(side) {
+      // Arms with proper joint structure
+      function createArm(side, sideName) {
         const armGroup = new THREE.Group();
+        armGroup.name = sideName + 'Arm';
+
+        // Shoulder joint
+        const shoulder = new THREE.Group();
+        shoulder.position.set(side * 0.3, 3.15, 0);
+        shoulder.name = sideName + 'Shoulder';
 
         // Upper arm
         const upperArmGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.4, 8);
         const upperArm = new THREE.Mesh(upperArmGeo, material);
-        upperArm.position.y = 3.0;
-        upperArm.position.x = side * 0.35;
+        upperArm.position.y = -0.2;
         upperArm.castShadow = true;
+        upperArm.name = sideName + 'UpperArm';
+        shoulder.add(upperArm);
+
+        // Elbow joint
+        const elbow = new THREE.Group();
+        elbow.position.y = -0.4;
+        elbow.name = sideName + 'Elbow';
 
         // Lower arm
         const lowerArmGeo = new THREE.CylinderGeometry(0.05, 0.04, 0.4, 8);
         const lowerArm = new THREE.Mesh(lowerArmGeo, material);
-        lowerArm.position.y = 2.6;
-        lowerArm.position.x = side * 0.35;
+        lowerArm.position.y = -0.2;
         lowerArm.castShadow = true;
+        lowerArm.name = sideName + 'LowerArm';
+        elbow.add(lowerArm);
 
         // Hand
         const handGeo = new THREE.SphereGeometry(0.07, 8, 8);
         const hand = new THREE.Mesh(handGeo, material);
-        hand.position.y = 2.4;
-        hand.position.x = side * 0.35;
+        hand.position.y = -0.4;
         hand.castShadow = true;
+        hand.name = sideName + 'Hand';
+        elbow.add(hand);
 
-        armGroup.add(upperArm);
-        armGroup.add(lowerArm);
-        armGroup.add(hand);
-        armGroup.name = side > 0 ? 'rightArm' : 'leftArm';
+        shoulder.add(elbow);
+        armGroup.add(shoulder);
 
         return armGroup;
       }
 
-      mannequin.add(createArm(-1)); // Left
-      mannequin.add(createArm(1));  // Right
+      mannequin.add(createArm(-1, 'left'));
+      mannequin.add(createArm(1, 'right'));
 
-      // Legs
-      function createLeg(side) {
+      // Legs with proper joint structure
+      function createLeg(side, sideName) {
         const legGroup = new THREE.Group();
+        legGroup.name = sideName + 'Leg';
+
+        // Hip joint
+        const hip = new THREE.Group();
+        hip.position.set(side * 0.15, 2.2, 0);
+        hip.name = sideName + 'Hip';
 
         // Upper leg
         const upperLegGeo = new THREE.CylinderGeometry(0.08, 0.07, 0.6, 8);
         const upperLeg = new THREE.Mesh(upperLegGeo, material);
-        upperLeg.position.y = 1.85;
-        upperLeg.position.x = side * 0.15;
+        upperLeg.position.y = -0.3;
         upperLeg.castShadow = true;
+        upperLeg.name = sideName + 'UpperLeg';
+        hip.add(upperLeg);
+
+        // Knee joint
+        const knee = new THREE.Group();
+        knee.position.y = -0.6;
+        knee.name = sideName + 'Knee';
 
         // Lower leg
         const lowerLegGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.6, 8);
         const lowerLeg = new THREE.Mesh(lowerLegGeo, material);
-        lowerLeg.position.y = 1.25;
-        lowerLeg.position.x = side * 0.15;
+        lowerLeg.position.y = -0.3;
         lowerLeg.castShadow = true;
+        lowerLeg.name = sideName + 'LowerLeg';
+        knee.add(lowerLeg);
 
         // Foot
         const footGeo = new THREE.BoxGeometry(0.12, 0.1, 0.25);
         const foot = new THREE.Mesh(footGeo, material);
-        foot.position.y = 0.05;
-        foot.position.x = side * 0.15;
+        foot.position.y = -0.6;
         foot.position.z = 0.08;
         foot.castShadow = true;
+        foot.name = sideName + 'Foot';
+        knee.add(foot);
 
-        legGroup.add(upperLeg);
-        legGroup.add(lowerLeg);
-        legGroup.add(foot);
-        legGroup.name = side > 0 ? 'rightLeg' : 'leftLeg';
+        hip.add(knee);
+        legGroup.add(hip);
 
         return legGroup;
       }
 
-      mannequin.add(createLeg(-1)); // Left
-      mannequin.add(createLeg(1));  // Right
+      mannequin.add(createLeg(-1, 'left'));
+      mannequin.add(createLeg(1, 'right'));
 
       return mannequin;
     }
 
-    function parseFPN(fpn) {
-      const parts = fpn.trim().split('/');
-      if (parts.length !== 5) throw new Error('Invalid FPN format');
+    function parseMPN(mpnString) {
+      // Format: fighter_a_mpn/fighter_b_mpn/distance
+      const parts = mpnString.trim().split('/');
+      if (parts.length !== 3) throw new Error('Invalid MPN format: expected fighter_a/fighter_b/distance');
 
       return {
-        fighterA: parseFighter(parts[0]),
-        fighterB: parseFighter(parts[1]),
-        distance: parts[2],
-        turn: parts[3],
-        moveCount: parseInt(parts[4])
+        fighterA: parseMannequinPose(parts[0]),
+        fighterB: parseMannequinPose(parts[1]),
+        distance: parts[2]
       };
     }
 
-    function parseFighter(fpnFighter) {
-      const parts = fpnFighter.split('.');
-      const mom = parts[4].split(',');
-      const bio = parts[5].split(',');
+    function parseMannequinPose(mpn) {
+      // Format: lean.rotation.shoulders.elbows.hips.knees.stance
+      const parts = mpn.split('.');
+      if (parts.length !== 7) {
+        throw new Error(`Invalid MPN pose format: expected 7 parts, got ${parts.length}`);
+      }
+
+      // Lean
+      const lean = parts[0].split(',');
+
+      // Rotation
+      const rot = parts[1].split(',');
+
+      // Shoulders
+      const shoulders = parts[2].split(',');
+
+      // Elbows
+      const elbows = parts[3].split(',');
+
+      // Hips
+      const hips = parts[4].split(',');
+
+      // Knees
+      const knees = parts[5].split(',');
+
+      // Stance
+      const stance = parts[6].split(',');
 
       return {
-        stance: parts[0],
-        balance: parseInt(parts[1]) / 100,
-        fatigue: parseInt(parts[2]) / 100,
-        damage: parseInt(parts[3]) / 100,
-        momentum: {
-          linear: parseInt(mom[0]) / 10,
-          rotational: parseInt(mom[1])
-        },
-        biomech: {
-          hipRot: parseInt(bio[0]),
-          torsoRot: parseInt(bio[1]),
-          weight: parseInt(bio[2]) / 100,
-          recovering: bio[3] === '1',
-          frames: parseInt(bio[4])
-        },
-        limbs: parts[6]
+        leanForwardBack: parseFloat(lean[0]),
+        leanLeftRight: parseFloat(lean[1]),
+        hipRotation: parseFloat(rot[0]),
+        torsoRotation: parseFloat(rot[1]),
+        neckRotation: parseFloat(rot[2]),
+        leftShoulderPitch: parseFloat(shoulders[0]),
+        leftShoulderRoll: parseFloat(shoulders[1]),
+        rightShoulderPitch: parseFloat(shoulders[2]),
+        rightShoulderRoll: parseFloat(shoulders[3]),
+        leftElbowBend: parseFloat(elbows[0]),
+        rightElbowBend: parseFloat(elbows[1]),
+        leftHipPitch: parseFloat(hips[0]),
+        leftHipRoll: parseFloat(hips[1]),
+        rightHipPitch: parseFloat(hips[2]),
+        rightHipRoll: parseFloat(hips[3]),
+        leftKneeBend: parseFloat(knees[0]),
+        rightKneeBend: parseFloat(knees[1]),
+        stanceWidth: parseFloat(stance[0]),
+        facingAngle: parseFloat(stance[1])
       };
     }
 
-    function poseMannequin(mannequin, fighter) {
-      // Apply balance (lean)
-      const lean = (1 - fighter.balance) * 0.2;
-      mannequin.rotation.z = lean;
+    function poseMannequin(mannequin, pose) {
+      // Apply lean
+      const leanZ = pose.leanForwardBack * 0.01; // cm to m, convert to rotation
+      const leanX = pose.leanLeftRight * 0.01;
+      mannequin.rotation.z = leanZ * 0.1;  // Scale for visual effect
+      mannequin.rotation.x = leanX * 0.1;
 
       // Apply hip rotation
       const hips = mannequin.getObjectByName('hips');
       if (hips) {
-        hips.rotation.y = THREE.MathUtils.degToRad(fighter.biomech.hipRot);
+        hips.rotation.y = THREE.MathUtils.degToRad(pose.hipRotation);
       }
 
       // Apply torso rotation
       const torso = mannequin.getObjectByName('torso');
       if (torso) {
-        torso.rotation.y = THREE.MathUtils.degToRad(fighter.biomech.torsoRot);
+        torso.rotation.y = THREE.MathUtils.degToRad(pose.torsoRotation);
       }
 
-      // Pose arms based on extended state
-      const leftArm = mannequin.getObjectByName('leftArm');
-      const rightArm = mannequin.getObjectByName('rightArm');
-
-      if (leftArm) {
-        const extended = fighter.limbs[0] === 'E' || fighter.limbs[0] === 'B';
-        leftArm.rotation.z = extended ? Math.PI / 3 : Math.PI / 6;
+      // Apply neck rotation
+      const neck = mannequin.getObjectByName('neck');
+      const head = mannequin.getObjectByName('head');
+      if (neck) {
+        neck.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
+      }
+      if (head) {
+        head.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
       }
 
-      if (rightArm) {
-        const extended = fighter.limbs[1] === 'E' || fighter.limbs[1] === 'B';
-        rightArm.rotation.z = extended ? -Math.PI / 3 : -Math.PI / 6;
+      // Apply shoulder rotations
+      const leftShoulder = mannequin.getObjectByName('leftShoulder');
+      const rightShoulder = mannequin.getObjectByName('rightShoulder');
+
+      if (leftShoulder) {
+        leftShoulder.rotation.x = THREE.MathUtils.degToRad(pose.leftShoulderPitch);
+        leftShoulder.rotation.z = THREE.MathUtils.degToRad(pose.leftShoulderRoll);
       }
 
-      // Update material based on damage
-      const color = mannequin === fighterA ? 0xff4444 : 0x4444ff;
-      const damageFactor = 1 - (fighter.damage * 0.5);
+      if (rightShoulder) {
+        rightShoulder.rotation.x = THREE.MathUtils.degToRad(pose.rightShoulderPitch);
+        rightShoulder.rotation.z = THREE.MathUtils.degToRad(-pose.rightShoulderRoll);
+      }
 
-      mannequin.traverse((child) => {
-        if (child.isMesh) {
-          child.material.color.setHex(color);
-          child.material.color.multiplyScalar(damageFactor);
+      // Apply elbow bends
+      const leftElbow = mannequin.getObjectByName('leftElbow');
+      const rightElbow = mannequin.getObjectByName('rightElbow');
 
-          if (fighter.damage > 0.5) {
-            child.material.opacity = 0.7;
-            child.material.transparent = true;
-          }
-        }
-      });
+      if (leftElbow) {
+        leftElbow.rotation.x = THREE.MathUtils.degToRad(-pose.leftElbowBend);
+      }
+
+      if (rightElbow) {
+        rightElbow.rotation.x = THREE.MathUtils.degToRad(-pose.rightElbowBend);
+      }
+
+      // Apply hip rotations
+      const leftHip = mannequin.getObjectByName('leftHip');
+      const rightHip = mannequin.getObjectByName('rightHip');
+
+      if (leftHip) {
+        leftHip.rotation.x = THREE.MathUtils.degToRad(-pose.leftHipPitch);
+        leftHip.rotation.z = THREE.MathUtils.degToRad(pose.leftHipRoll);
+      }
+
+      if (rightHip) {
+        rightHip.rotation.x = THREE.MathUtils.degToRad(-pose.rightHipPitch);
+        rightHip.rotation.z = THREE.MathUtils.degToRad(-pose.rightHipRoll);
+      }
+
+      // Apply knee bends
+      const leftKnee = mannequin.getObjectByName('leftKnee');
+      const rightKnee = mannequin.getObjectByName('rightKnee');
+
+      if (leftKnee) {
+        leftKnee.rotation.x = THREE.MathUtils.degToRad(pose.leftKneeBend);
+      }
+
+      if (rightKnee) {
+        rightKnee.rotation.x = THREE.MathUtils.degToRad(pose.rightKneeBend);
+      }
+
+      // Stance width (adjust leg positions)
+      const stanceWidthM = pose.stanceWidth / 100.0; // cm to m
+      if (leftHip) {
+        leftHip.parent.position.x = -stanceWidthM / 2;
+      }
+      if (rightHip) {
+        rightHip.parent.position.x = stanceWidthM / 2;
+      }
     }
 
-    function loadFPN() {
-      const fpnInput = document.getElementById('fpn').value.trim();
-      if (!fpnInput) {
-        alert('Please enter an FPN string');
+    function loadMPN() {
+      const mpnInput = document.getElementById('mpn').value.trim();
+      if (!mpnInput) {
+        alert('Please enter an MPN string');
         return;
       }
 
       try {
-        const state = parseFPN(fpnInput);
+        const state = parseMPN(mpnInput);
 
         // Position fighters based on distance
         const distanceMap = { 'c': 1.5, 's': 2.5, 'm': 4, 'l': 6, 'v': 8 };
@@ -446,92 +546,93 @@
         updateStats(state);
 
       } catch (e) {
-        alert('Error parsing FPN: ' + e.message);
+        alert('Error parsing MPN: ' + e.message);
+        console.error(e);
       }
     }
 
     function updateStats(state) {
       const statsDiv = document.getElementById('stats');
       statsDiv.innerHTML = `
-        <strong>Fighter A:</strong> Bal:${Math.round(state.fighterA.balance*100)}% Fat:${Math.round(state.fighterA.fatigue*100)}% Dmg:${Math.round(state.fighterA.damage*100)}%<br>
-        <strong>Fighter B:</strong> Bal:${Math.round(state.fighterB.balance*100)}% Fat:${Math.round(state.fighterB.fatigue*100)}% Dmg:${Math.round(state.fighterB.damage*100)}%<br>
-        <strong>Distance:</strong> ${state.distance} | <strong>Move:</strong> #${state.moveCount}
+        <strong>Fighter A (Red):</strong><br>
+        Hip: ${state.fighterA.hipRotation.toFixed(0)}° | Torso: ${state.fighterA.torsoRotation.toFixed(0)}°<br>
+        Lean: ${state.fighterA.leanForwardBack.toFixed(0)}cm fwd, ${state.fighterA.leanLeftRight.toFixed(0)}cm side<br>
+        <br>
+        <strong>Fighter B (Blue):</strong><br>
+        Hip: ${state.fighterB.hipRotation.toFixed(0)}° | Torso: ${state.fighterB.torsoRotation.toFixed(0)}°<br>
+        Lean: ${state.fighterB.leanForwardBack.toFixed(0)}cm fwd, ${state.fighterB.leanLeftRight.toFixed(0)}cm side<br>
+        <br>
+        <strong>Distance:</strong> ${state.distance}
       `;
     }
 
     function loadExample(num) {
-      document.getElementById('fpn').value = examples[num];
-      loadFPN();
+      document.getElementById('mpn').value = examples[num];
+      loadMPN();
     }
 
     function resetCamera() {
       camera.position.set(0, 3, 8);
       camera.lookAt(0, 2, 0);
+      cameraAngle = 0;
+      cameraHeight = 3;
+      cameraDistance = 8;
     }
 
     function generateRandomState() {
-      // Generate random valid fighter state
-      function randomFighter() {
-        const stances = ['o', 's', 'n', 'q', 'w', 'r', 'b', 'z'];
-        const stance = stances[Math.floor(Math.random() * stances.length)];
+      // Generate random valid mannequin pose (MPN format)
+      function randomPose() {
+        // Lean: -20 to +20 cm forward/back, -10 to +10 cm left/right
+        const leanFB = Math.floor((Math.random() - 0.5) * 40);
+        const leanLR = Math.floor((Math.random() - 0.5) * 20);
 
-        // Balance: 40-100% (can't be too low or fighter falls)
-        const balance = Math.floor(40 + Math.random() * 60);
-
-        // Fatigue: 0-80% (rarely exhausted at start)
-        const fatigue = Math.floor(Math.random() * 80);
-
-        // Damage: 0-50% (rarely heavily damaged)
-        const damage = Math.floor(Math.random() * 50);
-
-        // Momentum: -5 to +5 m/s linear, -30 to +30 deg/s rotational
-        const linearMom = Math.floor((Math.random() - 0.5) * 10);
-        const rotMom = Math.floor((Math.random() - 0.5) * 60);
-
-        // Biomechanics: hip rotation -45 to +45, torso -35 to +35
+        // Rotation: hip -45 to +45, torso -35 to +35, neck -30 to +30
         const hipRot = Math.floor((Math.random() - 0.5) * 90);
         const torsoRot = Math.floor((Math.random() - 0.5) * 70);
+        const neckRot = Math.floor((Math.random() - 0.5) * 60);
 
-        // Weight distribution: 20-80% (not too extreme)
-        const weight = Math.floor(20 + Math.random() * 60);
+        // Shoulders: pitch -60 to +60, roll -30 to +30
+        const lShoulderP = Math.floor((Math.random() - 0.5) * 120);
+        const lShoulderR = Math.floor(Math.random() * 60);
+        const rShoulderP = Math.floor((Math.random() - 0.5) * 120);
+        const rShoulderR = Math.floor(Math.random() * 60);
 
-        // Recovery: 20% chance of recovering
-        const recovering = Math.random() < 0.2 ? '1' : '0';
-        const frames = recovering === '1' ? Math.floor(1 + Math.random() * 5) : 0;
+        // Elbows: 0 to 150 degrees
+        const lElbow = Math.floor(Math.random() * 150);
+        const rElbow = Math.floor(Math.random() * 150);
 
-        // Limbs: - = free, E = extended, X = damaged, B = both
-        const limbStates = ['-', 'E', 'X', 'B'];
-        const limbs = Array(4).fill(0).map(() => {
-          const rand = Math.random();
-          if (rand < 0.6) return '-';      // 60% free
-          if (rand < 0.8) return 'E';      // 20% extended
-          if (rand < 0.95) return 'X';     // 15% damaged
-          return 'B';                       // 5% both
-        }).join('');
+        // Hips: pitch -20 to +80, roll -30 to +30
+        const lHipP = Math.floor(-20 + Math.random() * 100);
+        const lHipR = Math.floor((Math.random() - 0.5) * 60);
+        const rHipP = Math.floor(-20 + Math.random() * 100);
+        const rHipR = Math.floor((Math.random() - 0.5) * 60);
 
-        return `${stance}.${balance}.${fatigue}.${damage}.${linearMom},${rotMom}.${hipRot},${torsoRot},${weight},${recovering},${frames}.${limbs}`;
+        // Knees: 0 to 90 degrees
+        const lKnee = Math.floor(Math.random() * 90);
+        const rKnee = Math.floor(Math.random() * 90);
+
+        // Stance: 20-80cm width, facing 0-180
+        const stanceWidth = Math.floor(20 + Math.random() * 60);
+        const facing = Math.floor(Math.random() * 180);
+
+        // Format: lean.rotation.shoulders.elbows.hips.knees.stance
+        return `${leanFB},${leanLR}.${hipRot},${torsoRot},${neckRot}.${lShoulderP},${lShoulderR},${rShoulderP},${rShoulderR}.${lElbow},${rElbow}.${lHipP},${lHipR},${rHipP},${rHipR}.${lKnee},${rKnee}.${stanceWidth},${facing}`;
       }
 
-      // Distance: 70% medium/short, 20% long, 10% contact/very long
-      const distances = ['c', 's', 's', 'm', 'm', 'm', 'l', 'l', 'v'];
+      // Distance: varied
+      const distances = ['c', 's', 's', 'm', 'm', 'm', 'l'];
       const distance = distances[Math.floor(Math.random() * distances.length)];
 
-      // Turn: 50/50
-      const turn = Math.random() < 0.5 ? 'A' : 'B';
-
-      // Move count: 0-20
-      const moveCount = Math.floor(Math.random() * 21);
-
-      // Generate FPN
-      const fighterA = randomFighter();
-      const fighterB = randomFighter();
-      const fpn = `${fighterA}/${fighterB}/${distance}/${turn}/${moveCount}`;
+      // Generate MPN
+      const fighterA = randomPose();
+      const fighterB = randomPose();
+      const mpn = `${fighterA}/${fighterB}/${distance}`;
 
       // Set and load
-      document.getElementById('fpn').value = fpn;
-      loadFPN();
+      document.getElementById('mpn').value = mpn;
+      loadMPN();
 
-      console.log('Generated random state:', fpn);
+      console.log('Generated random pose:', mpn);
     }
 
     // Simplified mouse controls
