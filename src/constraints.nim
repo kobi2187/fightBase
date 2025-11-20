@@ -135,12 +135,12 @@ proc isStanceCompatible*(fighter: Fighter, move: Move): bool =
   ## Is the current stance compatible with this move?
   # Most moves work from most stances, but some have preferences
   case move.category
-  of Throw:
+  of mcThrow:
     # Throws harder from narrow stance
-    fighter.pos.stance != Narrow
-  of Takedown:
+    fighter.pos.stance != skNarrow
+  of mcTakedown:
     # Takedowns need mobile stance
-    fighter.pos.stance in {Orthodox, Southpaw, Square}
+    fighter.pos.stance in {skOrthodox, skSouthpaw, skSquare}
   else:
     true
 

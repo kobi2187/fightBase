@@ -206,13 +206,13 @@ proc recordTerminalState*(sdb: StateDB, state: FightState, reason: string = "") 
 # ============================================================================
 
 proc logUnknownState*(sdb: StateDB, state: FightState, context: string = "") =
-  ## Log a state that has no legal moves
+  ## Log a state that has no viable moves (physics-based impossibility)
   let hash = state.stateHash
   let now = getTime().toUnix()
   let textRepr = toTextRepr(state)
   let jsonRepr = $state.toJson()
 
-  let notes = if context != "": context else: "No legal moves found"
+  let notes = if context != "": context else: "No viable moves found"
 
   sdb.db.exec(sql"""
     INSERT INTO unknown_states (state_hash, state_json, text_repr, timestamp, notes)

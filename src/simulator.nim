@@ -11,7 +11,7 @@ type
   SimulationConfig* = object
     maxSequenceLength*: int     # Stop after this many moves
     recordAllStates*: bool       # Record every state to DB
-    logUnknownStates*: bool      # Log states with no legal moves
+    logUnknownStates*: bool      # Log states with no viable moves
     verbose*: bool               # Print progress
 
   SimulationResult* = object
@@ -32,7 +32,7 @@ proc createInitialState*(): FightState =
       pos: Position3D(
         x: -1.5, y: 0.0, z: 0.0,
         facing: 90.0,
-        stance: Orthodox,
+        stance: skOrthodox,
         balance: 1.0
       ),
       leftArm: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
@@ -48,7 +48,7 @@ proc createInitialState*(): FightState =
       pos: Position3D(
         x: 1.5, y: 0.0, z: 0.0,
         facing: 270.0,
-        stance: Orthodox,
+        stance: skOrthodox,
         balance: 1.0
       ),
       leftArm: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
@@ -73,9 +73,9 @@ proc createRandomInitialState*(): FightState =
 
   # Randomize stances
   if rand(1.0) > 0.5:
-    result.a.pos.stance = Southpaw
+    result.a.pos.stance = skSouthpaw
   if rand(1.0) > 0.5:
-    result.b.pos.stance = Southpaw
+    result.b.pos.stance = skSouthpaw
 
   # Randomize distance
   let r = rand(1.0)
@@ -128,11 +128,11 @@ proc simulateFight*(config: SimulationConfig, db: StateDB = nil): SimulationResu
 
     # Keep adding moves to sequence until time runs out or no compatible moves
     while true:
-      # Get legal moves for current state
-      let legal = legalMoves(state, currentFighter)
+      # Get viable moves for current state (physics-based, not sport rules)
+      let viable = viableMoves(state, currentFighter)
 
-      if legal.len == 0:
-        # No legal moves at all
+      if viable.len == 0:
+        # No viable moves at all
         if turnMoveCount == 0:
           # Couldn't even start a turn - unknown state
           if config.verbose:
@@ -140,7 +140,7 @@ proc simulateFight*(config: SimulationConfig, db: StateDB = nil): SimulationResu
             echo toAnalysisStr(state)
 
           if db != nil and config.logUnknownStates:
-            db.logUnknownState(state, fmt"No legal moves for {currentFighter} at move {moveCount}")
+            db.logUnknownState(state, fmt"No viable moves for {currentFighter} at move {moveCount}")
 
           unknownStateReached = true
           break  # Exit inner while
@@ -150,7 +150,7 @@ proc simulateFight*(config: SimulationConfig, db: StateDB = nil): SimulationResu
 
       # Filter for moves that can be added to current sequence
       var compatibleMoves: seq[Move] = @[]
-      for move in legal:
+      for move in viable:
         if canAddToSequence(actionSeq, move):
           compatibleMoves.add(move)
 

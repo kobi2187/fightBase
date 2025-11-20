@@ -1,6 +1,6 @@
 ## Core type definitions for the martial arts simulation engine
 
-import std/[options, tables, hashes]
+import std/[options, tables, hashes, sets]
 
 type
   FighterID* = enum
@@ -14,12 +14,14 @@ type
     RightLeg
 
   StanceKind* = enum
-    Orthodox        # left foot forward
-    Southpaw       # right foot forward
-    Square         # feet parallel
-    Wide           # wide stable base
-    Narrow         # narrow mobile base
-    Bladed         # side-on
+    skNeutral      # neutral stance
+    skOrthodox     # left foot forward
+    skSouthpaw     # right foot forward
+    skSquare       # feet parallel
+    skWide         # wide stable base
+    skNarrow       # narrow mobile base
+    skBladed       # side-on
+    skWrestling    # low wrestling stance
 
   SideKind* = enum
     Centerline     # facing opponent directly
@@ -110,26 +112,55 @@ type
     recoveryFramesOnMiss*: int # extra recovery if move misses
     recoveryFramesOnHit*: int  # recovery even if move hits
 
+  MoveType* = enum
+    ## Fundamental movement categories (GENERAL)
+    mtPositional   # Stance changes, footwork, pivots, stepping
+    mtEvasion      # Ducking, slipping, rolling, bobbing
+    mtDeflection   # Redirecting attacks with minimal force
+    mtDefensive    # Blocking, covering, framing
+    mtOffensive    # All attacking movements
+
   MoveCategory* = enum
-    ## Canonical biomechanical categories
-    Straight       # linear strikes (jab, cross, front kick)
-    Arc            # circular strikes (hook, roundhouse)
-    Whip           # snapping strikes (backfist, snap kick)
-    Push           # pushing techniques (teep, palm strike)
-    Pull           # pulling techniques (clinch entry, drag)
-    Sweep          # leg sweeps
-    Trip           # off-balancing with leg contact
-    Throw          # leverage throws
-    Takedown       # shooting takedowns
-    Clinch         # clinch entries
-    Lock           # joint locks
-    Choke          # chokes and strangles
-    Displacement   # footwork, pivots
-    Feint          # deceptive movements
-    Trap           # limb trapping
-    Block          # defensive blocks
-    Evade          # evasive movements
-    Counter        # counter techniques
+    ## Specific biomechanical sub-categories (within MoveType)
+    ## POSITIONAL sub-types
+    mcStep         # Linear stepping (forward, back, lateral)
+    mcPivot        # Rotational footwork
+    mcStanceChange # Switch stance, widen, narrow
+    mcAngleChange  # Circling, creating angles
+    mcLevelChange  # Raising/lowering center of mass
+
+    ## EVASION sub-types
+    mcSlip         # Head movement lateral
+    mcBob          # Head movement vertical
+    mcRoll         # Shoulder rotation evasion
+    mcPull         # Pull back/lean back
+
+    ## DEFLECTION sub-types
+    mcParry        # Hand deflection
+    mcCheck        # Limb obstruction
+    mcRedirect     # Circular redirection (e.g., Aikido)
+    mcJam          # Intercept and smother
+
+    ## DEFENSIVE sub-types
+    mcBlock        # Hard blocking
+    mcCover        # Shell/guard
+    mcFrame        # Structural defense (posting, frames)
+
+    ## OFFENSIVE sub-types (attacks)
+    mcStraightStrike  # Jab, cross, front kick, straight punch
+    mcArcStrike       # Hook, roundhouse, haymaker
+    mcWhipStrike      # Backfist, snap kick, slap
+    mcPushStrike      # Teep, palm strike, push kick
+    mcSweep           # Leg sweeps
+    mcTrip            # Off-balancing with leg contact
+    mcThrow           # Leverage throws
+    mcTakedown        # Shooting takedowns
+    mcClinchEntry     # Entering clinch
+    mcLock            # Joint locks
+    mcChoke           # Chokes and strangles
+    mcTrap            # Limb trapping
+    mcCounter         # Counter techniques
+    mcFeint           # Deceptive movements
 
   HeightLevel* = enum
     Low    # below waist
@@ -142,7 +173,9 @@ type
   Move* = object
     id*: string
     name*: string
-    category*: MoveCategory
+    moveType*: MoveType      # GENERAL category (positional, evasion, etc)
+    category*: MoveCategory  # SPECIFIC sub-category
+    targets*: seq[string]    # Vulnerability zones this can hit (if offensive)
     energyCost*: float       # 0.0 (trivial) to 1.0 (exhausting)
     timeCost*: float         # seconds this action takes (for turn budget)
     reach*: float            # meters
@@ -158,6 +191,8 @@ type
     followups*: seq[string]     # likely next move IDs
     limbsUsed*: set[LimbType]  # which limbs this move uses
     canCombine*: bool        # can be combined with other moves in same turn
+    optionsCreated*: int     # how many follow-up options this creates
+    exposureRisk*: float     # 0.0-1.0, how much this exposes you
 
   StyleProfile* = object
     id*: string
@@ -176,7 +211,7 @@ type
     limbsUsed*: set[LimbType]
 
   UnknownState* = object
-    ## Logged when simulation reaches a state with no legal moves
+    ## Logged when simulation reaches a state with no viable moves
     stateHash*: string
     state*: FightState
     timestamp*: int64

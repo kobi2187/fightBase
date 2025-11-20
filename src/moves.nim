@@ -25,8 +25,9 @@ proc getMoveById*(id: string): Option[Move] =
   else:
     result = none(Move)
 
-proc legalMoves*(state: FightState, who: FighterID): seq[Move] =
-  ## Get all legal moves for a fighter in current state
+proc viableMoves*(state: FightState, who: FighterID): seq[Move] =
+  ## Get all viable moves for a fighter in current state
+  ## "Viable" = physically possible given physics, not sport rules
   result = @[]
   for move in ALL_MOVES:
     if move.prerequisites(state, who):
@@ -38,8 +39,42 @@ proc legalMoves*(state: FightState, who: FighterID): seq[Move] =
 
 const MAX_TURN_TIME* = 0.6  # Maximum seconds per turn
 
+proc canCombineMoveTypes*(existing: seq[MoveType], newType: MoveType): bool =
+  ## Check if this move type can combine with existing move types in the sequence
+  ## Different categories can combine, but with limits
+
+  # Count how many of each type we already have
+  var typeCounts: array[MoveType, int]
+  for mt in existing:
+    inc typeCounts[mt]
+
+  # Check combination rules
+  case newType:
+  of mtPositional:
+    # Can always add positional (footwork) unless already have 2+
+    result = typeCounts[mtPositional] < 2
+
+  of mtEvasion:
+    # Can add evasion unless already have 2+ evasions
+    result = typeCounts[mtEvasion] < 2
+
+  of mtDeflection:
+    # Can add deflection unless already have 2+ deflections
+    result = typeCounts[mtDeflection] < 2
+
+  of mtDefensive:
+    # Can add defensive blocking unless already have 2+
+    result = typeCounts[mtDefensive] < 2
+
+  of mtOffensive:
+    # Offensive moves are limited - only 1-2 per sequence
+    # Can't add if already have 2 offensive moves
+    result = typeCounts[mtOffensive] < 2
+
 proc canAddToSequence*(sequence: ActionSequence, move: Move): bool =
   ## Check if a move can be added to the current action sequence
+  ## Checks time, limbs, combination rules, and move type compatibility
+
   # Check time budget
   if sequence.totalTimeCost + move.timeCost > MAX_TURN_TIME:
     return false
@@ -51,6 +86,15 @@ proc canAddToSequence*(sequence: ActionSequence, move: Move): bool =
   # Check if either move cannot be combined
   if sequence.moves.len > 0 and (not move.canCombine or not sequence.moves[^1].canCombine):
     return false
+
+  # Check move type compatibility (new rule for ply combinations)
+  if sequence.moves.len > 0:
+    var existingTypes: seq[MoveType] = @[]
+    for m in sequence.moves:
+      existingTypes.add(m.moveType)
+
+    if not canCombineMoveTypes(existingTypes, move.moveType):
+      return false
 
   result = true
 
