@@ -135,16 +135,16 @@
 
     // MPN Examples: lean.rotation.shoulders.elbows.hips.knees.stance
     const examples = {
-      // Neutral stance
+      // Neutral stance - Fixed commas
       1: "0,0.0,0,0.20,5,20,5.90,90.10,0,-5,0.15,15.40,90/0,0.0,0,0.20,5,20,5.90,90.-10,0,5,0.15,15.40,90/m",
 
-      // Jab pose (Fighter A jabbing)
+      // Jab pose (Fighter A jabbing) - Fixed commas
       2: "8,0.8,12,0.-35,8,-30,10.15,90.12,0,-5,0.20,15.40,90/0,0.0,0,0.20,5,20,5.90,90.-10,0,5,0.15,15.40,90/s",
 
-      // Round kick (Fighter B kicking)
+      // Round kick (Fighter B kicking) - Fixed commas
       3: "0,0.0,0,0.20,5,20,5.90,90.10,0,-5,0.15,15.40,90/0,-15.60,30,0.20,5,20,5.90,90.10,0,80,45.25,40.15,90/m",
 
-      // Close grappling stance (both fighters close, wrestling)
+      // Close grappling stance - Fixed commas
       4: "10,0.15,20,10.30,15,30,15.45,45.15,0,15,0.45,45.70,90/5,0.-10,15,8.25,12,25,12.40,50.-15,0,-15,0.40,40.70,90/c"
     };
 
@@ -224,6 +224,7 @@
 
     function createMannequin(color) {
       const mannequin = new THREE.Group();
+      mannequin.userData.initialJoints = {}; // Store initial transforms
 
       const material = new THREE.MeshStandardMaterial({
         color: color,
@@ -316,6 +317,7 @@
       function createLeg(side, sideName) {
         const legGroup = new THREE.Group();
         legGroup.name = sideName + 'Leg';
+        legGroup.userData.initialX = side * 0.15; // Store initial stance
 
         // Hip joint
         const hip = new THREE.Group();
@@ -427,9 +429,37 @@
       };
     }
 
+    function resetMannequinPose(mannequin) {
+      // Reset all rotations to zero
+      mannequin.rotation.set(0, 0, 0);
+
+      mannequin.traverse((obj) => {
+        if (obj.isGroup || obj.isMesh) {
+          obj.rotation.set(0, 0, 0);
+        }
+      });
+
+      // Reset leg positions to default
+      const leftLeg = mannequin.getObjectByName('leftLeg');
+      const rightLeg = mannequin.getObjectByName('rightLeg');
+      if (leftLeg && leftLeg.userData.initialX !== undefined) {
+        leftLeg.position.x = 0;
+        const leftHip = leftLeg.getObjectByName('leftHip');
+        if (leftHip) leftHip.position.x = leftLeg.userData.initialX;
+      }
+      if (rightLeg && rightLeg.userData.initialX !== undefined) {
+        rightLeg.position.x = 0;
+        const rightHip = rightLeg.getObjectByName('rightHip');
+        if (rightHip) rightHip.position.x = rightLeg.userData.initialX;
+      }
+    }
+
     function poseMannequin(mannequin, pose) {
-      // Apply lean
-      const leanZ = pose.leanForwardBack * 0.01; // cm to m, convert to rotation
+      // Reset first to avoid accumulation
+      resetMannequinPose(mannequin);
+
+      // Apply lean (convert cm to radians for visual effect)
+      const leanZ = pose.leanForwardBack * 0.01; // cm to m
       const leanX = pose.leanLeftRight * 0.01;
       mannequin.rotation.z = leanZ * 0.1;  // Scale for visual effect
       mannequin.rotation.x = leanX * 0.1;
@@ -461,25 +491,27 @@
       const rightShoulder = mannequin.getObjectByName('rightShoulder');
 
       if (leftShoulder) {
-        leftShoulder.rotation.x = THREE.MathUtils.degToRad(pose.leftShoulderPitch);
+        // Pitch = forward/back (X-axis)
+        leftShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.leftShoulderPitch);
+        // Roll = raise sideways (Z-axis)
         leftShoulder.rotation.z = THREE.MathUtils.degToRad(pose.leftShoulderRoll);
       }
 
       if (rightShoulder) {
-        rightShoulder.rotation.x = THREE.MathUtils.degToRad(pose.rightShoulderPitch);
+        rightShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.rightShoulderPitch);
         rightShoulder.rotation.z = THREE.MathUtils.degToRad(-pose.rightShoulderRoll);
       }
 
-      // Apply elbow bends
+      // Apply elbow bends (negative for correct bend direction)
       const leftElbow = mannequin.getObjectByName('leftElbow');
       const rightElbow = mannequin.getObjectByName('rightElbow');
 
       if (leftElbow) {
-        leftElbow.rotation.x = THREE.MathUtils.degToRad(-pose.leftElbowBend);
+        leftElbow.rotation.x = THREE.MathUtils.degToRad(pose.leftElbowBend);
       }
 
       if (rightElbow) {
-        rightElbow.rotation.x = THREE.MathUtils.degToRad(-pose.rightElbowBend);
+        rightElbow.rotation.x = THREE.MathUtils.degToRad(pose.rightElbowBend);
       }
 
       // Apply hip rotations
@@ -508,13 +540,16 @@
         rightKnee.rotation.x = THREE.MathUtils.degToRad(pose.rightKneeBend);
       }
 
-      // Stance width (adjust leg positions)
+      // Stance width (adjust leg group positions)
       const stanceWidthM = pose.stanceWidth / 100.0; // cm to m
-      if (leftHip) {
-        leftHip.parent.position.x = -stanceWidthM / 2;
+      const leftLeg = mannequin.getObjectByName('leftLeg');
+      const rightLeg = mannequin.getObjectByName('rightLeg');
+
+      if (leftLeg) {
+        leftLeg.position.x = -stanceWidthM / 2;
       }
-      if (rightHip) {
-        rightHip.parent.position.x = stanceWidthM / 2;
+      if (rightLeg) {
+        rightLeg.position.x = stanceWidthM / 2;
       }
     }
 
@@ -591,11 +626,11 @@
         const torsoRot = Math.floor((Math.random() - 0.5) * 70);
         const neckRot = Math.floor((Math.random() - 0.5) * 60);
 
-        // Shoulders: pitch -60 to +60, roll -30 to +30
+        // Shoulders: pitch -60 to +60, roll 0 to +90
         const lShoulderP = Math.floor((Math.random() - 0.5) * 120);
-        const lShoulderR = Math.floor(Math.random() * 60);
+        const lShoulderR = Math.floor(Math.random() * 90);
         const rShoulderP = Math.floor((Math.random() - 0.5) * 120);
-        const rShoulderR = Math.floor(Math.random() * 60);
+        const rShoulderR = Math.floor(Math.random() * 90);
 
         // Elbows: 0 to 150 degrees
         const lElbow = Math.floor(Math.random() * 150);
