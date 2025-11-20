@@ -15,19 +15,37 @@ type
     verbose*: bool               # Print progress
 
   SimulationResult* = object
-    finalState*: FightState
+    finalState*: RuntimeFightState
     totalMoves*: int
     winner*: Option[FighterID]
     reachedUnknown*: bool
     reason*: string
 
 # ============================================================================
+# Helper functions for runtime state
+# ============================================================================
+
+proc getOverlay*(state: RuntimeFightState, who: FighterID): var RuntimeOverlay =
+  ## Get overlay for specified fighter
+  if who == FighterA:
+    return state.overlayA
+  else:
+    return state.overlayB
+
+proc getOpponentOverlay*(state: RuntimeFightState, who: FighterID): var RuntimeOverlay =
+  ## Get overlay for opponent
+  if who == FighterA:
+    return state.overlayB
+  else:
+    return state.overlayA
+
+# ============================================================================
 # Initial state creation
 # ============================================================================
 
-proc createInitialState*(): FightState =
+proc createInitialState*(): RuntimeFightState =
   ## Create a standard initial fighting position
-  result = FightState(
+  let position = FightState(
     a: Fighter(
       pos: Position3D(
         x: -1.5, y: 0.0, z: 0.0,
@@ -35,14 +53,20 @@ proc createInitialState*(): FightState =
         stance: skOrthodox,
         balance: 1.0
       ),
-      leftArm: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      rightArm: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      leftLeg: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      rightLeg: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      fatigue: 0.0,
-      damage: 0.0,
+      leftArm: LimbPosition(free: true, extended: false, angle: 0.0),
+      rightArm: LimbPosition(free: true, extended: false, angle: 0.0),
+      leftLeg: LimbPosition(free: true, extended: false, angle: 0.0),
+      rightLeg: LimbPosition(free: true, extended: false, angle: 0.0),
       liveSide: Centerline,
-      control: None
+      control: None,
+      momentum: Momentum(linear: 0.0, rotational: 0.0, decayRate: 0.5),
+      biomech: BiomechanicalState(
+        hipRotation: 0.0,
+        torsoRotation: 0.0,
+        weightDistribution: 0.5,
+        recovering: false,
+        recoveryFrames: 0
+      )
     ),
     b: Fighter(
       pos: Position3D(
@@ -51,48 +75,62 @@ proc createInitialState*(): FightState =
         stance: skOrthodox,
         balance: 1.0
       ),
-      leftArm: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      rightArm: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      leftLeg: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      rightLeg: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      fatigue: 0.0,
-      damage: 0.0,
+      leftArm: LimbPosition(free: true, extended: false, angle: 0.0),
+      rightArm: LimbPosition(free: true, extended: false, angle: 0.0),
+      leftLeg: LimbPosition(free: true, extended: false, angle: 0.0),
+      rightLeg: LimbPosition(free: true, extended: false, angle: 0.0),
       liveSide: Centerline,
-      control: None
+      control: None,
+      momentum: Momentum(linear: 0.0, rotational: 0.0, decayRate: 0.5),
+      biomech: BiomechanicalState(
+        hipRotation: 0.0,
+        torsoRotation: 0.0,
+        weightDistribution: 0.5,
+        recovering: false,
+        recoveryFrames: 0
+      )
     ),
     distance: Medium,
     sequenceLength: 0,
     terminal: false,
     winner: none(FighterID)
   )
-  result.stateHash = computeStateHash(result)
 
-proc createRandomInitialState*(): FightState =
+  result = RuntimeFightState(
+    position: position,
+    overlayA: createFreshOverlay(),
+    overlayB: createFreshOverlay()
+  )
+  result.position.stateHash = computeStateHash(result.position)
+
+proc createRandomInitialState*(): RuntimeFightState =
   ## Create a randomized initial state (for variety)
   result = createInitialState()
 
   # Randomize stances
   if rand(1.0) > 0.5:
-    result.a.pos.stance = skSouthpaw
+    result.position.a.pos.stance = skSouthpaw
   if rand(1.0) > 0.5:
-    result.b.pos.stance = skSouthpaw
+    result.position.b.pos.stance = skSouthpaw
 
   # Randomize distance
   let r = rand(1.0)
   if r < 0.2:
-    result.distance = Short
+    result.position.distance = Short
   elif r < 0.6:
-    result.distance = Medium
+    result.position.distance = Medium
   else:
-    result.distance = Long
+    result.position.distance = Long
 
-  # Slight fatigue/balance variation
-  result.a.fatigue = rand(0.1)
-  result.b.fatigue = rand(0.1)
-  result.a.pos.balance = 0.9 + rand(0.1)
-  result.b.pos.balance = 0.9 + rand(0.1)
+  # Slight overlay variation (fatigue only, start fresh otherwise)
+  result.overlayA.fatigue = rand(0.1)
+  result.overlayB.fatigue = rand(0.1)
 
-  result.stateHash = computeStateHash(result)
+  # Slight balance variation
+  result.position.a.pos.balance = 0.9 + rand(0.1)
+  result.position.b.pos.balance = 0.9 + rand(0.1)
+
+  result.position.stateHash = computeStateHash(result.position)
 
 # ============================================================================
 # Single fight simulation
@@ -107,19 +145,19 @@ proc simulateFight*(config: SimulationConfig, db: StateDB = nil): SimulationResu
 
   if config.verbose:
     echo "\n=== Starting fight simulation ==="
-    echo toCompactRepr(state)
+    echo toCompactRepr(state.position)
 
   while moveCount < config.maxSequenceLength:
-    # Record state
+    # Record state (position only)
     if db != nil and config.recordAllStates:
-      discard db.recordState(state)
+      discard db.recordState(state.position)
 
     # Check terminal condition
-    if isTerminalPosition(state):
-      state.terminal = true
-      state.winner = some(determineWinner(state))
+    if isTerminalPosition(state.position):
+      state.position.terminal = true
+      state.position.winner = some(determineWinner(state.position))
       if db != nil:
-        db.recordTerminalState(state, "Natural termination")
+        db.recordTerminalState(state.position, "Natural termination")
       break
 
     # Build action sequence for current fighter's turn
@@ -128,8 +166,16 @@ proc simulateFight*(config: SimulationConfig, db: StateDB = nil): SimulationResu
 
     # Keep adding moves to sequence until time runs out or no compatible moves
     while true:
-      # Get viable moves for current state (physics-based, not sport rules)
-      let viable = viableMoves(state, currentFighter)
+      # Get viable moves for current position
+      let positionMoves = viableMoves(state.position, currentFighter)
+
+      # Filter by overlay viability
+      var viable: seq[Move] = @[]
+      let overlay = state.getOverlay(currentFighter)
+      for move in positionMoves:
+        # Check if move is viable given fatigue/damage
+        if move.viabilityCheck.isNil or move.viabilityCheck(overlay, move) > 0.0:
+          viable.add(move)
 
       if viable.len == 0:
         # No viable moves at all
@@ -137,10 +183,10 @@ proc simulateFight*(config: SimulationConfig, db: StateDB = nil): SimulationResu
           # Couldn't even start a turn - unknown state
           if config.verbose:
             echo fmt"\n[!] Unknown state reached at move {moveCount}"
-            echo toAnalysisStr(state)
+            echo toAnalysisStr(state.position)
 
           if db != nil and config.logUnknownStates:
-            db.logUnknownState(state, fmt"No viable moves for {currentFighter} at move {moveCount}")
+            db.logUnknownState(state.position, fmt"No viable moves for {currentFighter} at move {moveCount}")
 
           unknownStateReached = true
           break  # Exit inner while
@@ -168,20 +214,48 @@ proc simulateFight*(config: SimulationConfig, db: StateDB = nil): SimulationResu
       if config.verbose:
         if turnMoveCount == 1:
           echo fmt"\n[{moveCount}] {currentFighter}:"
-        echo fmt"  → {selectedMove.name} (time: {selectedMove.timeCost:.2f}s)"
+        echo fmt"  → {selectedMove.name} (time: {selectedMove.timeCost:.2f}s, energy: {selectedMove.energyCost:.2f})"
 
       # Store old hash for first move of turn
-      let oldHash = if turnMoveCount == 1: state.stateHash else: ""
+      let oldHash = if turnMoveCount == 1: state.position.stateHash else: ""
 
-      # Apply move
-      selectedMove.apply(state, currentFighter)
+      # Apply move to position
+      selectedMove.apply(state.position, currentFighter)
 
-      # Recompute hash
-      state.stateHash = computeStateHash(state)
+      # Apply overlay effects
+      var attackerOverlay = state.getOverlay(currentFighter)
+      var defenderOverlay = state.getOpponentOverlay(currentFighter)
+
+      # Increase attacker fatigue
+      attackerOverlay.fatigue = min(1.0, attackerOverlay.fatigue + selectedMove.energyCost)
+
+      # Apply damage to defender if applicable
+      if selectedMove.damageEffect.directDamage > 0:
+        defenderOverlay.damage = min(1.0, defenderOverlay.damage + selectedMove.damageEffect.directDamage)
+
+      # Apply fatigue to defender
+      if selectedMove.damageEffect.fatigueInflicted > 0:
+        defenderOverlay.fatigue = min(1.0, defenderOverlay.fatigue + selectedMove.damageEffect.fatigueInflicted)
+
+      # Apply limb damage if applicable
+      if selectedMove.damageEffect.targetLimb.isSome:
+        let limb = selectedMove.damageEffect.targetLimb.get
+        case limb:
+        of LeftArm:
+          defenderOverlay.leftArmDamage = min(1.0, defenderOverlay.leftArmDamage + selectedMove.damageEffect.limbDamage)
+        of RightArm:
+          defenderOverlay.rightArmDamage = min(1.0, defenderOverlay.rightArmDamage + selectedMove.damageEffect.limbDamage)
+        of LeftLeg:
+          defenderOverlay.leftLegDamage = min(1.0, defenderOverlay.leftLegDamage + selectedMove.damageEffect.limbDamage)
+        of RightLeg:
+          defenderOverlay.rightLegDamage = min(1.0, defenderOverlay.rightLegDamage + selectedMove.damageEffect.limbDamage)
+
+      # Recompute hash (position only)
+      state.position.stateHash = computeStateHash(state.position)
 
       # Record transition (only for first move of turn for now)
       if db != nil and turnMoveCount == 1:
-        db.recordTransition(oldHash, state.stateHash, selectedMove.id, currentFighter)
+        db.recordTransition(oldHash, state.position.stateHash, selectedMove.id, currentFighter)
 
       inc moveCount
 
@@ -196,31 +270,32 @@ proc simulateFight*(config: SimulationConfig, db: StateDB = nil): SimulationResu
 
     if config.verbose and turnMoveCount > 0:
       echo fmt"  Total turn time: {actionSeq.totalTimeCost:.2f}s, energy: {actionSeq.totalEnergyCost:.2f}"
+      echo fmt"  Overlays - A: fat={state.overlayA.fatigue:.2f} dmg={state.overlayA.damage:.2f} | B: fat={state.overlayB.fatigue:.2f} dmg={state.overlayB.damage:.2f}"
 
     # Switch fighters
     currentFighter = if currentFighter == FighterA: FighterB else: FighterA
 
     if config.verbose and moveCount mod 10 == 0:
-      echo fmt"  [{moveCount}] {toCompactRepr(state)}"
+      echo fmt"  [{moveCount}] {toCompactRepr(state.position)}"
 
   # Determine result
   result = SimulationResult(
     finalState: state,
     totalMoves: moveCount,
-    winner: state.winner,
+    winner: state.position.winner,
     reachedUnknown: unknownStateReached,
     reason:
       if unknownStateReached: "Unknown state"
-      elif state.terminal: fmt"Terminal: {state.winner.get()} wins"
+      elif state.position.terminal: fmt"Terminal: {state.position.winner.get()} wins"
       else: "Max sequence length"
   )
 
   if config.verbose:
     echo "\n=== Fight ended ==="
     echo fmt"Moves: {moveCount} | Reason: {result.reason}"
-    if state.winner.isSome:
-      echo fmt"Winner: {state.winner.get()}"
-    echo toAnalysisStr(state)
+    if state.position.winner.isSome:
+      echo fmt"Winner: {state.position.winner.get()}"
+    echo toAnalysisStr(state.position)
 
 # ============================================================================
 # Batch simulation
@@ -244,7 +319,7 @@ proc runBatchSimulation*(numFights: int, config: SimulationConfig,
 
     if result.reachedUnknown:
       inc stats.unknown
-    if result.finalState.terminal:
+    if result.finalState.position.terminal:
       inc stats.terminal
 
     if i mod 100 == 0:
