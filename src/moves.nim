@@ -118,12 +118,6 @@ proc createEmptySequence*(): ActionSequence =
 # Helper functions for move application
 # ============================================================================
 
-proc applyFatigue*(fighter: var Fighter, cost: float) =
-  fighter.fatigue = min(1.0, fighter.fatigue + cost)
-
-proc applyDamage*(fighter: var Fighter, amount: float) =
-  fighter.damage = min(1.0, fighter.damage + amount)
-
 proc applyBalanceChange*(fighter: var Fighter, change: float) =
   fighter.pos.balance = clamp(fighter.pos.balance + change, 0.0, 1.0)
 
@@ -138,13 +132,53 @@ proc changeDistance*(state: var FightState, delta: float) =
     elif new < 2.5: Long
     else: VeryLong
 
-proc extendLimb*(limb: var LimbStatus) =
+proc extendLimb*(limb: var LimbPosition) =
   limb.extended = true
   limb.free = false
 
-proc retractLimb*(limb: var LimbStatus) =
+proc retractLimb*(limb: var LimbPosition) =
   limb.extended = false
   limb.free = true
+
+# ============================================================================
+# Default viability checks
+# ============================================================================
+
+proc standardViability*(overlay: RuntimeOverlay, move: Move): float =
+  ## Generic viability based on fatigue and damage
+  # Can't perform if too damaged
+  if overlay.damage > 0.9:
+    return 0.0
+
+  # Reduce effectiveness by fatigue
+  let fatigueMultiplier = 1.0 - (overlay.fatigue * 0.6)
+
+  # Reduce effectiveness by overall damage
+  let damageMultiplier = 1.0 - (overlay.damage * 0.5)
+
+  return max(0.0, fatigueMultiplier * damageMultiplier)
+
+proc limbViability*(overlay: RuntimeOverlay, limb: LimbType): float =
+  ## Check viability of specific limb
+  case limb:
+  of LeftArm: return 1.0 - overlay.leftArmDamage
+  of RightArm: return 1.0 - overlay.rightArmDamage
+  of LeftLeg: return 1.0 - overlay.leftLegDamage
+  of RightLeg: return 1.0 - overlay.rightLegDamage
+
+proc moveViability*(overlay: RuntimeOverlay, move: Move): float =
+  ## Combine standard + limb viability
+  let baseViability = standardViability(overlay, move)
+
+  if baseViability == 0.0:
+    return 0.0
+
+  # Check limbs used
+  var limbMultiplier = 1.0
+  for limb in move.limbsUsed:
+    limbMultiplier *= limbViability(overlay, limb)
+
+  return baseViability * limbMultiplier
 
 # ============================================================================
 # STRIKING MOVES
@@ -155,11 +189,13 @@ proc createJab*(side: string = "left", origin: string = "Boxing"): Move =
   let moveId = "jab_" & side & "_" & origin.toLowerAscii()
   let isLeft = side == "left"
   let limbUsed = if isLeft: {LeftArm} else: {RightArm}
+  let targetLimb = if isLeft: some(LeftArm) else: some(RightArm)
 
   result = Move(
     id: moveId,
     name: side & " Jab (" & origin & ")",
-    category: Straight,
+    moveType: mtOffensive,
+    category: mcStraightStrike,
     energyCost: 0.05,
     timeCost: 0.25,  # Fast punch
     reach: 0.7,
@@ -183,36 +219,41 @@ proc createJab*(side: string = "left", origin: string = "Boxing"): Move =
       recoveryFramesOnMiss: 1,  # Quick recovery
       recoveryFramesOnHit: 1
     ),
+    damageEffect: DamageEffect(
+      directDamage: 0.05,       # Small damage
+      fatigueInflicted: 0.02,   # Slight fatigue to opponent
+      targetLimb: none(LimbType),  # No specific limb targeted
+      limbDamage: 0.0
+    ),
     styleOrigins: @[origin],
     followups: @["cross_right", "hook_left", "step_back"],
     limbsUsed: limbUsed,
     canCombine: true  # Can be combined with other moves
   )
 
-  # Set up prerequisite closure
+  # Set up prerequisite closure (position-based only)
   result.prerequisites = proc(state: FightState, who: FighterID): bool =
     let fighter = if who == FighterA: state.a else: state.b
-    # Need free arm
+    # Need free arm and sufficient balance
     let armFree = if isLeft: fighter.leftArm.free else: fighter.rightArm.free
-    result = armFree and fighter.fatigue < 0.9 and fighter.pos.balance >= 0.3
+    result = armFree and fighter.pos.balance >= 0.3
 
-  # Set up application closure
+  # Set up viability check (overlay-based)
+  result.viabilityCheck = moveViability
+
+  # Set up application closure (position changes only, no overlay updates)
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
 
-    # Apply fatigue
-    applyFatigue(attacker[], 0.05)
-
-    # Extend arm temporarily
+    # Extend arm temporarily (position change)
     if isLeft:
       extendLimb(attacker[].leftArm)
     else:
       extendLimb(attacker[].rightArm)
 
-    # Chance to land based on opponent state
+    # Apply balance change if hit lands
     if rand(1.0) > defender[].pos.balance * 0.5:
-      applyDamage(defender[], 0.05)
       applyBalanceChange(defender[], -0.05)
 
     # Retract
@@ -220,6 +261,12 @@ proc createJab*(side: string = "left", origin: string = "Boxing"): Move =
       retractLimb(attacker[].leftArm)
     else:
       retractLimb(attacker[].rightArm)
+
+    # Update physics (position state)
+    attacker[].momentum.linear += result.physicsEffect.linearMomentum
+    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
+    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
+    attacker[].biomech.weightDistribution += result.physicsEffect.weightShift
 
     state.sequenceLength += 1
 

@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MPN 3D Mannequin Viewer</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+      background: #2a2a2a;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(255,255,255,0.95);
+      padding: 20px;
+      border-radius: 8px;
+      max-width: 400px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      z-index: 100;
+    }
+    #info {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: monospace;
+    }
+    h2 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+    }
+    textarea {
+      width: 100%;
+      height: 80px;
+      font-family: monospace;
+      font-size: 10px;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      resize: vertical;
+    }
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      font-size: 13px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 8px;
+      margin-right: 5px;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    .example-btn {
+      background: #2196F3;
+      font-size: 11px;
+      padding: 5px 10px;
+    }
+    .example-btn:hover {
+      background: #0b7dda;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 5px;
+      font-size: 13px;
+    }
+    .stats {
+      font-size: 11px;
+      margin-top: 10px;
+      padding: 8px;
+      background: #f5f5f5;
+      border-radius: 4px;
+    }
+    .note {
+      font-size: 10px;
+      color: #666;
+      margin-top: 5px;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <h2>🥋 3D Mannequin Viewer (MPN)</h2>
+    <label>MPN String (Mannequin Position Notation):</label>
+    <textarea id="mpn" placeholder="Fighter A / Fighter B / distance&#10;lean.rot.shoulders.elbows.hips.knees.stance"></textarea>
+    <div class="note">MPN = Pure physical pose (joint angles only)</div>
+
+    <div>
+      <button onclick="loadMPN()">Load Position</button>
+      <button onclick="resetCamera()">Reset View</button>
+    </div>
+
+    <div style="margin-top: 10px;">
+      <button onclick="generateRandomState()" style="background: #FF9800; width: 100%;">🎲 Generate Random Pose</button>
+    </div>
+
+    <div style="margin-top: 10px;">
+      <button class="example-btn" onclick="loadExample(1)">Neutral</button>
+      <button class="example-btn" onclick="loadExample(2)">Jab</button>
+      <button class="example-btn" onclick="loadExample(3)">Round Kick</button>
+      <button class="example-btn" onclick="loadExample(4)">Grapple</button>
+    </div>
+
+    <div class="stats" id="stats"></div>
+  </div>
+
+  <div id="info">
+    Controls: Mouse drag = rotate | Scroll = zoom | Right drag = pan
+  </div>
+
+  <div id="canvas-container"></div>
+
+  <!-- Three.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    // Scene setup
+    let scene, camera, renderer, controls;
+    let fighterA, fighterB;
+    let groundPlane;
+
+    // MPN Examples: lean.rotation.shoulders.elbows.hips.knees.stance
+    const examples = {
+      // Neutral stance - Fixed commas
+      1: "0,0.0,0,0.20,5,20,5.90,90.10,0,-5,0.15,15.40,90/0,0.0,0,0.20,5,20,5.90,90.-10,0,5,0.15,15.40,90/m",
+
+      // Jab pose (Fighter A jabbing) - Fixed commas
+      2: "8,0.8,12,0.-35,8,-30,10.15,90.12,0,-5,0.20,15.40,90/0,0.0,0,0.20,5,20,5.90,90.-10,0,5,0.15,15.40,90/s",
+
+      // Round kick (Fighter B kicking) - Fixed commas
+      3: "0,0.0,0,0.20,5,20,5.90,90.10,0,-5,0.15,15.40,90/0,-15.60,30,0.20,5,20,5.90,90.10,0,80,45.25,40.15,90/m",
+
+      // Close grappling stance - Fixed commas
+      4: "10,0.15,20,10.30,15,30,15.45,45.15,0,15,0.45,45.70,90/5,0.-10,15,8.25,12,25,12.40,50.-15,0,-15,0.40,40.70,90/c"
+    };
+
+    function init() {
+      // Scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x2a2a2a);
+      scene.fog = new THREE.Fog(0x2a2a2a, 10, 50);
+
+      // Camera
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 3, 8);
+      camera.lookAt(0, 2, 0);
+
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+      // Lights
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambientLight);
+
+      const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      mainLight.position.set(5, 10, 5);
+      mainLight.castShadow = true;
+      mainLight.shadow.camera.left = -10;
+      mainLight.shadow.camera.right = 10;
+      mainLight.shadow.camera.top = 10;
+      mainLight.shadow.camera.bottom = -10;
+      scene.add(mainLight);
+
+      const fillLight = new THREE.DirectionalLight(0x8888ff, 0.3);
+      fillLight.position.set(-5, 5, -5);
+      scene.add(fillLight);
+
+      // Ground
+      const groundGeometry = new THREE.PlaneGeometry(20, 20);
+      const groundMaterial = new THREE.MeshStandardMaterial({
+        color: 0x444444,
+        roughness: 0.8,
+        metalness: 0.2
+      });
+      groundPlane = new THREE.Mesh(groundGeometry, groundMaterial);
+      groundPlane.rotation.x = -Math.PI / 2;
+      groundPlane.receiveShadow = true;
+      scene.add(groundPlane);
+
+      // Grid
+      const gridHelper = new THREE.GridHelper(20, 20, 0x666666, 0x333333);
+      scene.add(gridHelper);
+
+      // Mouse controls (simplified orbit)
+      setupMouseControls();
+
+      // Create mannequins
+      fighterA = createMannequin(0xff4444); // Red
+      fighterB = createMannequin(0x4444ff); // Blue
+
+      fighterA.position.set(-3, 0, 0);
+      fighterB.position.set(3, 0, 0);
+
+      scene.add(fighterA);
+      scene.add(fighterB);
+
+      // Load first example
+      loadExample(1);
+
+      // Render loop
+      animate();
+
+      // Handle window resize
+      window.addEventListener('resize', onWindowResize);
+    }
+
+    function createMannequin(color) {
+      const mannequin = new THREE.Group();
+      mannequin.userData.initialJoints = {}; // Store initial transforms
+
+      const material = new THREE.MeshStandardMaterial({
+        color: color,
+        roughness: 0.5,
+        metalness: 0.3
+      });
+
+      // Body parts (simplified mannequin with named joints)
+      // Head
+      const headGeo = new THREE.SphereGeometry(0.2, 16, 16);
+      const head = new THREE.Mesh(headGeo, material);
+      head.position.y = 3.6;
+      head.castShadow = true;
+      head.name = 'head';
+      mannequin.add(head);
+
+      // Neck
+      const neckGeo = new THREE.CylinderGeometry(0.08, 0.1, 0.15, 8);
+      const neck = new THREE.Mesh(neckGeo, material);
+      neck.position.y = 3.4;
+      neck.castShadow = true;
+      neck.name = 'neck';
+      mannequin.add(neck);
+
+      // Torso
+      const torsoGeo = new THREE.BoxGeometry(0.5, 0.8, 0.3);
+      const torso = new THREE.Mesh(torsoGeo, material);
+      torso.position.y = 2.9;
+      torso.castShadow = true;
+      torso.name = 'torso';
+      mannequin.add(torso);
+
+      // Hips
+      const hipsGeo = new THREE.BoxGeometry(0.45, 0.3, 0.3);
+      const hips = new THREE.Mesh(hipsGeo, material);
+      hips.position.y = 2.35;
+      hips.castShadow = true;
+      hips.name = 'hips';
+      mannequin.add(hips);
+
+      // Arms with proper joint structure
+      function createArm(side, sideName) {
+        const armGroup = new THREE.Group();
+        armGroup.name = sideName + 'Arm';
+
+        // Shoulder joint
+        const shoulder = new THREE.Group();
+        shoulder.position.set(side * 0.3, 3.15, 0);
+        shoulder.name = sideName + 'Shoulder';
+
+        // Upper arm
+        const upperArmGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.4, 8);
+        const upperArm = new THREE.Mesh(upperArmGeo, material);
+        upperArm.position.y = -0.2;
+        upperArm.castShadow = true;
+        upperArm.name = sideName + 'UpperArm';
+        shoulder.add(upperArm);
+
+        // Elbow joint
+        const elbow = new THREE.Group();
+        elbow.position.y = -0.4;
+        elbow.name = sideName + 'Elbow';
+
+        // Lower arm
+        const lowerArmGeo = new THREE.CylinderGeometry(0.05, 0.04, 0.4, 8);
+        const lowerArm = new THREE.Mesh(lowerArmGeo, material);
+        lowerArm.position.y = -0.2;
+        lowerArm.castShadow = true;
+        lowerArm.name = sideName + 'LowerArm';
+        elbow.add(lowerArm);
+
+        // Hand
+        const handGeo = new THREE.SphereGeometry(0.07, 8, 8);
+        const hand = new THREE.Mesh(handGeo, material);
+        hand.position.y = -0.4;
+        hand.castShadow = true;
+        hand.name = sideName + 'Hand';
+        elbow.add(hand);
+
+        shoulder.add(elbow);
+        armGroup.add(shoulder);
+
+        return armGroup;
+      }
+
+      mannequin.add(createArm(-1, 'left'));
+      mannequin.add(createArm(1, 'right'));
+
+      // Legs with proper joint structure
+      function createLeg(side, sideName) {
+        const legGroup = new THREE.Group();
+        legGroup.name = sideName + 'Leg';
+        legGroup.userData.initialX = side * 0.15; // Store initial stance
+
+        // Hip joint
+        const hip = new THREE.Group();
+        hip.position.set(side * 0.15, 2.2, 0);
+        hip.name = sideName + 'Hip';
+
+        // Upper leg
+        const upperLegGeo = new THREE.CylinderGeometry(0.08, 0.07, 0.6, 8);
+        const upperLeg = new THREE.Mesh(upperLegGeo, material);
+        upperLeg.position.y = -0.3;
+        upperLeg.castShadow = true;
+        upperLeg.name = sideName + 'UpperLeg';
+        hip.add(upperLeg);
+
+        // Knee joint
+        const knee = new THREE.Group();
+        knee.position.y = -0.6;
+        knee.name = sideName + 'Knee';
+
+        // Lower leg
+        const lowerLegGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.6, 8);
+        const lowerLeg = new THREE.Mesh(lowerLegGeo, material);
+        lowerLeg.position.y = -0.3;
+        lowerLeg.castShadow = true;
+        lowerLeg.name = sideName + 'LowerLeg';
+        knee.add(lowerLeg);
+
+        // Foot
+        const footGeo = new THREE.BoxGeometry(0.12, 0.1, 0.25);
+        const foot = new THREE.Mesh(footGeo, material);
+        foot.position.y = -0.6;
+        foot.position.z = 0.08;
+        foot.castShadow = true;
+        foot.name = sideName + 'Foot';
+        knee.add(foot);
+
+        hip.add(knee);
+        legGroup.add(hip);
+
+        return legGroup;
+      }
+
+      mannequin.add(createLeg(-1, 'left'));
+      mannequin.add(createLeg(1, 'right'));
+
+      return mannequin;
+    }
+
+    function parseMPN(mpnString) {
+      // Format: fighter_a_mpn/fighter_b_mpn/distance
+      const parts = mpnString.trim().split('/');
+      if (parts.length !== 3) throw new Error('Invalid MPN format: expected fighter_a/fighter_b/distance');
+
+      return {
+        fighterA: parseMannequinPose(parts[0]),
+        fighterB: parseMannequinPose(parts[1]),
+        distance: parts[2]
+      };
+    }
+
+    function parseMannequinPose(mpn) {
+      // Format: lean.rotation.shoulders.elbows.hips.knees.stance
+      const parts = mpn.split('.');
+      if (parts.length !== 7) {
+        throw new Error(`Invalid MPN pose format: expected 7 parts, got ${parts.length}`);
+      }
+
+      // Lean
+      const lean = parts[0].split(',');
+
+      // Rotation
+      const rot = parts[1].split(',');
+
+      // Shoulders
+      const shoulders = parts[2].split(',');
+
+      // Elbows
+      const elbows = parts[3].split(',');
+
+      // Hips
+      const hips = parts[4].split(',');
+
+      // Knees
+      const knees = parts[5].split(',');
+
+      // Stance
+      const stance = parts[6].split(',');
+
+      return {
+        leanForwardBack: parseFloat(lean[0]),
+        leanLeftRight: parseFloat(lean[1]),
+        hipRotation: parseFloat(rot[0]),
+        torsoRotation: parseFloat(rot[1]),
+        neckRotation: parseFloat(rot[2]),
+        leftShoulderPitch: parseFloat(shoulders[0]),
+        leftShoulderRoll: parseFloat(shoulders[1]),
+        rightShoulderPitch: parseFloat(shoulders[2]),
+        rightShoulderRoll: parseFloat(shoulders[3]),
+        leftElbowBend: parseFloat(elbows[0]),
+        rightElbowBend: parseFloat(elbows[1]),
+        leftHipPitch: parseFloat(hips[0]),
+        leftHipRoll: parseFloat(hips[1]),
+        rightHipPitch: parseFloat(hips[2]),
+        rightHipRoll: parseFloat(hips[3]),
+        leftKneeBend: parseFloat(knees[0]),
+        rightKneeBend: parseFloat(knees[1]),
+        stanceWidth: parseFloat(stance[0]),
+        facingAngle: parseFloat(stance[1])
+      };
+    }
+
+    function resetMannequinPose(mannequin) {
+      // Reset all rotations to zero
+      mannequin.rotation.set(0, 0, 0);
+
+      mannequin.traverse((obj) => {
+        if (obj.isGroup || obj.isMesh) {
+          obj.rotation.set(0, 0, 0);
+        }
+      });
+
+      // Reset leg positions to default
+      const leftLeg = mannequin.getObjectByName('leftLeg');
+      const rightLeg = mannequin.getObjectByName('rightLeg');
+      if (leftLeg && leftLeg.userData.initialX !== undefined) {
+        leftLeg.position.x = 0;
+        const leftHip = leftLeg.getObjectByName('leftHip');
+        if (leftHip) leftHip.position.x = leftLeg.userData.initialX;
+      }
+      if (rightLeg && rightLeg.userData.initialX !== undefined) {
+        rightLeg.position.x = 0;
+        const rightHip = rightLeg.getObjectByName('rightHip');
+        if (rightHip) rightHip.position.x = rightLeg.userData.initialX;
+      }
+    }
+
+    function poseMannequin(mannequin, pose) {
+      // Reset first to avoid accumulation
+      resetMannequinPose(mannequin);
+
+      // Apply lean (convert cm to radians for visual effect)
+      const leanZ = pose.leanForwardBack * 0.01; // cm to m
+      const leanX = pose.leanLeftRight * 0.01;
+      mannequin.rotation.z = leanZ * 0.1;  // Scale for visual effect
+      mannequin.rotation.x = leanX * 0.1;
+
+      // Apply hip rotation
+      const hips = mannequin.getObjectByName('hips');
+      if (hips) {
+        hips.rotation.y = THREE.MathUtils.degToRad(pose.hipRotation);
+      }
+
+      // Apply torso rotation
+      const torso = mannequin.getObjectByName('torso');
+      if (torso) {
+        torso.rotation.y = THREE.MathUtils.degToRad(pose.torsoRotation);
+      }
+
+      // Apply neck rotation
+      const neck = mannequin.getObjectByName('neck');
+      const head = mannequin.getObjectByName('head');
+      if (neck) {
+        neck.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
+      }
+      if (head) {
+        head.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
+      }
+
+      // Apply shoulder rotations
+      const leftShoulder = mannequin.getObjectByName('leftShoulder');
+      const rightShoulder = mannequin.getObjectByName('rightShoulder');
+
+      if (leftShoulder) {
+        // Pitch = forward/back (X-axis)
+        leftShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.leftShoulderPitch);
+        // Roll = raise sideways (Z-axis)
+        leftShoulder.rotation.z = THREE.MathUtils.degToRad(pose.leftShoulderRoll);
+      }
+
+      if (rightShoulder) {
+        rightShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.rightShoulderPitch);
+        rightShoulder.rotation.z = THREE.MathUtils.degToRad(-pose.rightShoulderRoll);
+      }
+
+      // Apply elbow bends (negative for correct bend direction)
+      const leftElbow = mannequin.getObjectByName('leftElbow');
+      const rightElbow = mannequin.getObjectByName('rightElbow');
+
+      if (leftElbow) {
+        leftElbow.rotation.x = THREE.MathUtils.degToRad(pose.leftElbowBend);
+      }
+
+      if (rightElbow) {
+        rightElbow.rotation.x = THREE.MathUtils.degToRad(pose.rightElbowBend);
+      }
+
+      // Apply hip rotations
+      const leftHip = mannequin.getObjectByName('leftHip');
+      const rightHip = mannequin.getObjectByName('rightHip');
+
+      if (leftHip) {
+        leftHip.rotation.x = THREE.MathUtils.degToRad(-pose.leftHipPitch);
+        leftHip.rotation.z = THREE.MathUtils.degToRad(pose.leftHipRoll);
+      }
+
+      if (rightHip) {
+        rightHip.rotation.x = THREE.MathUtils.degToRad(-pose.rightHipPitch);
+        rightHip.rotation.z = THREE.MathUtils.degToRad(-pose.rightHipRoll);
+      }
+
+      // Apply knee bends
+      const leftKnee = mannequin.getObjectByName('leftKnee');
+      const rightKnee = mannequin.getObjectByName('rightKnee');
+
+      if (leftKnee) {
+        leftKnee.rotation.x = THREE.MathUtils.degToRad(pose.leftKneeBend);
+      }
+
+      if (rightKnee) {
+        rightKnee.rotation.x = THREE.MathUtils.degToRad(pose.rightKneeBend);
+      }
+
+      // Stance width (adjust leg group positions)
+      const stanceWidthM = pose.stanceWidth / 100.0; // cm to m
+      const leftLeg = mannequin.getObjectByName('leftLeg');
+      const rightLeg = mannequin.getObjectByName('rightLeg');
+
+      if (leftLeg) {
+        leftLeg.position.x = -stanceWidthM / 2;
+      }
+      if (rightLeg) {
+        rightLeg.position.x = stanceWidthM / 2;
+      }
+    }
+
+    function loadMPN() {
+      const mpnInput = document.getElementById('mpn').value.trim();
+      if (!mpnInput) {
+        alert('Please enter an MPN string');
+        return;
+      }
+
+      try {
+        const state = parseMPN(mpnInput);
+
+        // Position fighters based on distance
+        const distanceMap = { 'c': 1.5, 's': 2.5, 'm': 4, 'l': 6, 'v': 8 };
+        const dist = distanceMap[state.distance] || 4;
+
+        fighterA.position.x = -dist / 2;
+        fighterB.position.x = dist / 2;
+
+        fighterA.rotation.y = Math.PI / 2;
+        fighterB.rotation.y = -Math.PI / 2;
+
+        // Pose mannequins
+        poseMannequin(fighterA, state.fighterA);
+        poseMannequin(fighterB, state.fighterB);
+
+        // Update stats
+        updateStats(state);
+
+      } catch (e) {
+        alert('Error parsing MPN: ' + e.message);
+        console.error(e);
+      }
+    }
+
+    function updateStats(state) {
+      const statsDiv = document.getElementById('stats');
+      statsDiv.innerHTML = `
+        <strong>Fighter A (Red):</strong><br>
+        Hip: ${state.fighterA.hipRotation.toFixed(0)}° | Torso: ${state.fighterA.torsoRotation.toFixed(0)}°<br>
+        Lean: ${state.fighterA.leanForwardBack.toFixed(0)}cm fwd, ${state.fighterA.leanLeftRight.toFixed(0)}cm side<br>
+        <br>
+        <strong>Fighter B (Blue):</strong><br>
+        Hip: ${state.fighterB.hipRotation.toFixed(0)}° | Torso: ${state.fighterB.torsoRotation.toFixed(0)}°<br>
+        Lean: ${state.fighterB.leanForwardBack.toFixed(0)}cm fwd, ${state.fighterB.leanLeftRight.toFixed(0)}cm side<br>
+        <br>
+        <strong>Distance:</strong> ${state.distance}
+      `;
+    }
+
+    function loadExample(num) {
+      document.getElementById('mpn').value = examples[num];
+      loadMPN();
+    }
+
+    function resetCamera() {
+      camera.position.set(0, 3, 8);
+      camera.lookAt(0, 2, 0);
+      cameraAngle = 0;
+      cameraHeight = 3;
+      cameraDistance = 8;
+    }
+
+    function generateRandomState() {
+      // Generate random valid mannequin pose (MPN format)
+      function randomPose() {
+        // Lean: -20 to +20 cm forward/back, -10 to +10 cm left/right
+        const leanFB = Math.floor((Math.random() - 0.5) * 40);
+        const leanLR = Math.floor((Math.random() - 0.5) * 20);
+
+        // Rotation: hip -45 to +45, torso -35 to +35, neck -30 to +30
+        const hipRot = Math.floor((Math.random() - 0.5) * 90);
+        const torsoRot = Math.floor((Math.random() - 0.5) * 70);
+        const neckRot = Math.floor((Math.random() - 0.5) * 60);
+
+        // Shoulders: pitch -60 to +60, roll 0 to +90
+        const lShoulderP = Math.floor((Math.random() - 0.5) * 120);
+        const lShoulderR = Math.floor(Math.random() * 90);
+        const rShoulderP = Math.floor((Math.random() - 0.5) * 120);
+        const rShoulderR = Math.floor(Math.random() * 90);
+
+        // Elbows: 0 to 150 degrees
+        const lElbow = Math.floor(Math.random() * 150);
+        const rElbow = Math.floor(Math.random() * 150);
+
+        // Hips: pitch -20 to +80, roll -30 to +30
+        const lHipP = Math.floor(-20 + Math.random() * 100);
+        const lHipR = Math.floor((Math.random() - 0.5) * 60);
+        const rHipP = Math.floor(-20 + Math.random() * 100);
+        const rHipR = Math.floor((Math.random() - 0.5) * 60);
+
+        // Knees: 0 to 90 degrees
+        const lKnee = Math.floor(Math.random() * 90);
+        const rKnee = Math.floor(Math.random() * 90);
+
+        // Stance: 20-80cm width, facing 0-180
+        const stanceWidth = Math.floor(20 + Math.random() * 60);
+        const facing = Math.floor(Math.random() * 180);
+
+        // Format: lean.rotation.shoulders.elbows.hips.knees.stance
+        return `${leanFB},${leanLR}.${hipRot},${torsoRot},${neckRot}.${lShoulderP},${lShoulderR},${rShoulderP},${rShoulderR}.${lElbow},${rElbow}.${lHipP},${lHipR},${rHipP},${rHipR}.${lKnee},${rKnee}.${stanceWidth},${facing}`;
+      }
+
+      // Distance: varied
+      const distances = ['c', 's', 's', 'm', 'm', 'm', 'l'];
+      const distance = distances[Math.floor(Math.random() * distances.length)];
+
+      // Generate MPN
+      const fighterA = randomPose();
+      const fighterB = randomPose();
+      const mpn = `${fighterA}/${fighterB}/${distance}`;
+
+      // Set and load
+      document.getElementById('mpn').value = mpn;
+      loadMPN();
+
+      console.log('Generated random pose:', mpn);
+    }
+
+    // Simplified mouse controls
+    let mouseDown = false;
+    let mouseX = 0;
+    let mouseY = 0;
+    let cameraAngle = 0;
+    let cameraHeight = 3;
+    let cameraDistance = 8;
+
+    function setupMouseControls() {
+      renderer.domElement.addEventListener('mousedown', (e) => {
+        mouseDown = true;
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+      });
+
+      renderer.domElement.addEventListener('mouseup', () => {
+        mouseDown = false;
+      });
+
+      renderer.domElement.addEventListener('mousemove', (e) => {
+        if (!mouseDown) return;
+
+        const deltaX = e.clientX - mouseX;
+        const deltaY = e.clientY - mouseY;
+
+        cameraAngle += deltaX * 0.01;
+        cameraHeight = Math.max(0.5, Math.min(6, cameraHeight - deltaY * 0.01));
+
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+
+        updateCamera();
+      });
+
+      renderer.domElement.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        cameraDistance = Math.max(2, Math.min(15, cameraDistance + e.deltaY * 0.01));
+        updateCamera();
+      });
+    }
+
+    function updateCamera() {
+      camera.position.x = Math.sin(cameraAngle) * cameraDistance;
+      camera.position.z = Math.cos(cameraAngle) * cameraDistance;
+      camera.position.y = cameraHeight;
+      camera.lookAt(0, 2, 0);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // Initialize
+    init();
+  </script>
+</body>
+</html>

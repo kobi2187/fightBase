@@ -1,5 +1,8 @@
 ## Constraint checking and prerequisite validation system
-## These functions determine what moves are physically possible
+## These functions determine what moves are PHYSICALLY POSSIBLE from positions
+##
+## IMPORTANT: This module checks POSITION constraints only (stance, balance, limbs, control)
+## Fatigue and damage checks belong in move.viabilityCheck (overlay-based filtering)
 
 import fight_types
 import physics
@@ -26,11 +29,11 @@ proc canReachTarget*(attacker: Fighter, move: Move, distance: DistanceKind): boo
 proc isDistanceOptimal*(move: Move, distance: DistanceKind): bool =
   ## Is this distance optimal for this move?
   case move.category
-  of Clinch, Lock, Choke: distance == Contact
-  of Straight, Arc, Whip: distance in {Short, Medium}
-  of Push: distance in {Short, Medium, Long}
-  of Throw, Takedown: distance in {Contact, Short}
-  of Sweep, Trip: distance in {Contact, Short}
+  of mcClinchEntry, mcLock, mcChoke: distance == Contact
+  of mcStraightStrike, mcArcStrike, mcWhipStrike: distance in {Short, Medium}
+  of mcPushStrike: distance in {Short, Medium, Long}
+  of mcThrow, mcTakedown: distance in {Contact, Short}
+  of mcSweep, mcTrip: distance in {Contact, Short}
   else: true  # Other moves are more flexible
 
 # ============================================================================
@@ -52,11 +55,11 @@ proc hasFreeArm*(fighter: Fighter): bool =
 proc hasFreeLeg*(fighter: Fighter): bool =
   fighter.leftLeg.free or fighter.rightLeg.free
 
-proc canUseLimb*(limb: LimbStatus, move: Move): bool =
-  ## Can this specific limb execute this move?
+proc canUseLimb*(limb: LimbPosition, move: Move): bool =
+  ## Can this specific limb execute this move (position check only)?
   if not limb.free: return false
-  if limb.extended and move.category in {Straight, Arc}: return false
-  if limb.damaged > 0.6: return false  # Too damaged
+  if limb.extended and move.category in {mcStraightStrike, mcArcStrike}: return false
+  # Note: Limb damage check is in viability, not here
   result = true
 
 # ============================================================================
@@ -66,45 +69,18 @@ proc canUseLimb*(limb: LimbStatus, move: Move): bool =
 proc isBalanceAdequate*(fighter: Fighter, move: Move): bool =
   ## Does fighter have enough balance for this move?
   case move.category
-  of Throw, Takedown: fighter.pos.balance >= 0.6
-  of Arc, Whip: fighter.pos.balance >= 0.5
-  of Sweep, Trip: fighter.pos.balance >= 0.7
+  of mcThrow, mcTakedown: fighter.pos.balance >= 0.6
+  of mcArcStrike, mcWhipStrike: fighter.pos.balance >= 0.5
+  of mcSweep, mcTrip: fighter.pos.balance >= 0.7
   else: fighter.pos.balance >= 0.3  # Most moves work with low balance
 
 proc canPivot*(fighter: Fighter): bool =
-  ## Can fighter pivot/turn?
-  fighter.pos.balance >= 0.5 and fighter.fatigue < 0.8
+  ## Can fighter pivot/turn (position check only)?
+  fighter.pos.balance >= 0.5
 
 proc canJump*(fighter: Fighter): bool =
-  ## Can fighter jump or leave ground?
-  fighter.pos.balance >= 0.7 and fighter.fatigue < 0.6
-
-# ============================================================================
-# Fatigue constraints
-# ============================================================================
-
-proc canAffordMove*(fighter: Fighter, move: Move): bool =
-  ## Does fighter have energy for this move?
-  # Allow moves that would push fatigue up to 0.95
-  fighter.fatigue + move.energyCost <= 0.95
-
-proc getFatigueThreshold*(fatigue: float): int =
-  ## Returns fatigue level bracket (0-5)
-  ## Higher = more restricted
-  if fatigue < 0.2: 0      # Fresh
-  elif fatigue < 0.4: 1    # Light fatigue
-  elif fatigue < 0.6: 2    # Moderate fatigue
-  elif fatigue < 0.75: 3   # Heavy fatigue
-  elif fatigue < 0.9: 4    # Extreme fatigue
-  else: 5                  # Exhausted
-
-proc isMoveFatigueAppropriate*(move: Move, fatigue: float): bool =
-  ## Some moves disabled at high fatigue
-  let threshold = getFatigueThreshold(fatigue)
-  case move.category
-  of Throw, Takedown: threshold <= 3
-  of Arc, Whip: threshold <= 4
-  else: threshold <= 5
+  ## Can fighter jump or leave ground (position check only)?
+  fighter.pos.balance >= 0.7
 
 # ============================================================================
 # Positional and angular constraints
@@ -123,8 +99,8 @@ proc canAccessAngle*(fighter: Fighter, move: Move): bool =
   # Simplified: most moves work from centerline or live side
   # Some moves require dead side (certain strikes from outside)
   case move.category
-  of Clinch: fighter.liveSide in {Centerline, LiveSideLeft, LiveSideRight}
-  of Throw: fighter.liveSide != DeadSideLeft and fighter.liveSide != DeadSideRight
+  of mcClinchEntry: fighter.liveSide in {Centerline, LiveSideLeft, LiveSideRight}
+  of mcThrow: fighter.liveSide != DeadSideLeft and fighter.liveSide != DeadSideRight
   else: true  # Most strikes work from any angle
 
 # ============================================================================
@@ -166,17 +142,16 @@ proc canGrapple*(fighter: Fighter, distance: DistanceKind): bool =
   distance in {Contact, Short} and hasFreeLimbs(fighter, 2)
 
 # ============================================================================
-# Combined prerequisite checks
+# Combined prerequisite checks (POSITION ONLY)
 # ============================================================================
 
 proc checkBasicPrerequisites*(state: FightState, who: FighterID, move: Move): bool =
-  ## Standard checks that apply to most moves
+  ## Standard checks that apply to most moves (POSITION CONSTRAINTS ONLY)
+  ## Fatigue/damage filtering happens in move.viabilityCheck (overlay-based)
   let fighter = if who == FighterA: state.a else: state.b
 
-  # Basic physical constraints
-  if not canAffordMove(fighter, move): return false
+  # Basic physical constraints (position-based)
   if not isBalanceAdequate(fighter, move): return false
-  if not isMoveFatigueAppropriate(move, fighter.fatigue): return false
   if not canReachTarget(fighter, move, state.distance): return false
   if not hasFreeLimbs(fighter, 1): return false
   if not isStanceCompatible(fighter, move): return false
@@ -186,9 +161,9 @@ proc checkBasicPrerequisites*(state: FightState, who: FighterID, move: Move): bo
 
   # Category-specific checks
   case move.category
-  of Straight, Arc, Whip, Push:
+  of mcStraightStrike, mcArcStrike, mcWhipStrike, mcPushStrike:
     if not canStrike(fighter): return false
-  of Clinch, Throw, Takedown, Lock, Choke:
+  of mcClinchEntry, mcThrow, mcTakedown, mcLock, mcChoke:
     if not canGrapple(fighter, state.distance): return false
   else:
     discard
@@ -196,46 +171,39 @@ proc checkBasicPrerequisites*(state: FightState, who: FighterID, move: Move): bo
   result = true
 
 # ============================================================================
-# Opponent state constraints
+# Opponent state constraints (position-based)
 # ============================================================================
 
 proc isOpponentVulnerable*(opponent: Fighter, move: Move): bool =
   ## Is opponent in a state where this move is more likely to work?
   case move.category
-  of Throw, Takedown:
+  of mcThrow, mcTakedown:
     # Easier when opponent off-balance or extended
     opponent.pos.balance < 0.6 or
     opponent.leftArm.extended or opponent.rightArm.extended
-  of Sweep, Trip:
+  of mcSweep, mcTrip:
     # Easier when opponent weighted wrong
     opponent.pos.balance < 0.7
-  of Lock, Choke:
+  of mcLock, mcChoke:
     # Need limb or neck access
     not opponent.leftArm.free or not opponent.rightArm.free
   else:
     true  # Most strikes don't depend on opponent state
 
-proc canOpponentRecover*(opponent: Fighter): bool =
-  ## Can opponent recover from bad position?
-  opponent.pos.balance >= 0.4 and opponent.fatigue < 0.85
-
 # ============================================================================
-# Terminal state detection
+# Terminal state detection (requires overlays for damage/fatigue)
 # ============================================================================
 
 proc isTerminalPosition*(state: FightState): bool =
-  ## Check if this is a fight-ending position
+  ## Check if this is a fight-ending position (POSITION ONLY)
+  ## Note: Damage/fatigue checks should be done with overlays in simulator
   # Check fighter A
   if state.a.pos.balance < 0.2: return true  # A falling
-  if state.a.damage > 0.8: return true       # A incapacitated
-  if state.a.fatigue > 0.95: return true     # A exhausted
   if not hasFreeLimbs(state.a, 1) and state.b.control in {Mount, BackControl, SideControl}:
     return true  # A fully controlled
 
   # Check fighter B
   if state.b.pos.balance < 0.2: return true  # B falling
-  if state.b.damage > 0.8: return true       # B incapacitated
-  if state.b.fatigue > 0.95: return true     # B exhausted
   if not hasFreeLimbs(state.b, 1) and state.a.control in {Mount, BackControl, SideControl}:
     return true  # B fully controlled
 
@@ -247,11 +215,34 @@ proc isTerminalPosition*(state: FightState): bool =
 
   result = false
 
+proc isTerminalWithOverlays*(state: FightState, overlayA: RuntimeOverlay, overlayB: RuntimeOverlay): bool =
+  ## Check terminal condition including overlay data
+  # Position-based terminal
+  if isTerminalPosition(state): return true
+
+  # Overlay-based terminal (damage/fatigue)
+  if overlayA.damage > 0.8: return true       # A incapacitated
+  if overlayA.fatigue > 0.95: return true     # A exhausted
+  if overlayB.damage > 0.8: return true       # B incapacitated
+  if overlayB.fatigue > 0.95: return true     # B exhausted
+
+  result = false
+
 proc determineWinner*(state: FightState): FighterID =
-  ## Determine who won in a terminal state
-  # Compare overall states
-  let aScore = state.a.pos.balance + (1.0 - state.a.damage) + (1.0 - state.a.fatigue)
-  let bScore = state.b.pos.balance + (1.0 - state.b.damage) + (1.0 - state.b.fatigue)
+  ## Determine who won in a terminal state (position-based)
+  ## For overlay-aware winner determination, use determineWinnerWithOverlays
+  # Factor in control
+  if state.a.control in {Mount, BackControl, Lock, Choke}: return FighterA
+  if state.b.control in {Mount, BackControl, Lock, Choke}: return FighterB
+
+  # Overall balance condition
+  if state.a.pos.balance > state.b.pos.balance: FighterA else: FighterB
+
+proc determineWinnerWithOverlays*(state: FightState, overlayA: RuntimeOverlay, overlayB: RuntimeOverlay): FighterID =
+  ## Determine winner considering both position and overlays
+  # Compare overall states (position + overlay)
+  let aScore = state.a.pos.balance + (1.0 - overlayA.damage) + (1.0 - overlayA.fatigue)
+  let bScore = state.b.pos.balance + (1.0 - overlayB.damage) + (1.0 - overlayB.fatigue)
 
   # Factor in control
   if state.a.control in {Mount, BackControl, Lock, Choke}: return FighterA

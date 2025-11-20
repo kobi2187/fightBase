@@ -1,4 +1,9 @@
 ## Core type definitions for the martial arts simulation engine
+##
+## KEY ARCHITECTURAL PRINCIPLE:
+## The tablebase tree uses ONLY PositionState (stance, biomechanics, balance).
+## Fatigue and damage are OVERLAYS applied at runtime when filtering moves.
+## This prevents tree bloat from state variations that don't affect move legality.
 
 import std/[options, tables, hashes, sets]
 
@@ -69,30 +74,47 @@ type
     recovering*: bool        # in recovery from committed move
     recoveryFrames*: int     # frames until fully recovered
 
-  LimbStatus* = object
+  LimbPosition* = object
+    ## Position/configuration of a limb (NOT including damage - that's an overlay)
     free*: bool              # can move freely
     extended*: bool          # currently extended/committed
-    damaged*: float          # 0.0 (fine) to 1.0 (unusable)
     angle*: float            # relative angle to torso, degrees
 
-  Fighter* = object
-    pos*: Position3D
-    leftArm*, rightArm*: LimbStatus
-    leftLeg*, rightLeg*: LimbStatus
+  ## OVERLAYS - Applied at runtime, NOT part of tree state
+  RuntimeOverlay* = object
+    ## Fatigue and damage - applied when filtering viable moves
+    ## NOT included in tree hash - prevents bloat
     fatigue*: float          # 0.0 (fresh) to 1.0 (exhausted)
     damage*: float           # 0.0 (unhurt) to 1.0 (incapacitated)
+    leftArmDamage*: float    # per-limb damage
+    rightArmDamage*: float
+    leftLegDamage*: float
+    rightLegDamage*: float
+
+  Fighter* = object
+    ## Position state (used in tree)
+    pos*: Position3D
+    leftArm*, rightArm*: LimbPosition
+    leftLeg*, rightLeg*: LimbPosition
     liveSide*: SideKind      # which side of opponent we're on
     control*: ControlKind    # grappling control state
     momentum*: Momentum      # current physical momentum
     biomech*: BiomechanicalState  # body configuration state
 
   FightState* = object
+    ## The core position state - this is what goes in the tree
     a*, b*: Fighter
     distance*: DistanceKind
     sequenceLength*: int     # how many moves so far
     terminal*: bool          # is this a winning/losing position?
     winner*: Option[FighterID]
     stateHash*: string       # computed hash for deduplication
+
+  RuntimeFightState* = object
+    ## Complete state including overlays (for actual fight simulation)
+    position*: FightState     # The tree position
+    overlayA*: RuntimeOverlay # Fighter A overlays
+    overlayB*: RuntimeOverlay # Fighter B overlays
 
   PositionDelta* = object
     ## Describes how a move changes position
@@ -111,6 +133,13 @@ type
     commitmentLevel*: float   # 0.0-1.0, how committed the move is
     recoveryFramesOnMiss*: int # extra recovery if move misses
     recoveryFramesOnHit*: int  # recovery even if move hits
+
+  DamageEffect* = object
+    ## Damage effects from a move - applied as overlay
+    directDamage*: float      # direct damage to health
+    fatigueInflicted*: float  # fatigue caused
+    targetLimb*: Option[LimbType]  # which limb is damaged (if any)
+    limbDamage*: float        # damage to specific limb
 
   MoveType* = enum
     ## Fundamental movement categories (GENERAL)
@@ -170,6 +199,11 @@ type
   MovePrerequisite* = proc(state: FightState, who: FighterID): bool {.closure.}
   MoveApplication* = proc(state: var FightState, who: FighterID) {.closure.}
 
+  ## Move viability filter - checks if overlays allow this move
+  MoveViabilityCheck* = proc(overlay: RuntimeOverlay, move: Move): float {.closure.}
+    ## Returns 0.0-1.0 effectiveness based on fatigue/damage
+    ## 1.0 = full effectiveness, 0.0 = can't perform
+
   Move* = object
     id*: string
     name*: string
@@ -185,8 +219,10 @@ type
     lethalPotential*: float  # 0.0 (no threat) to 1.0 (finisher)
     positionShift*: PositionDelta
     physicsEffect*: PhysicsEffect # momentum and biomechanical effects
+    damageEffect*: DamageEffect   # damage/fatigue inflicted (overlay)
     prerequisites*: MovePrerequisite
     apply*: MoveApplication
+    viabilityCheck*: MoveViabilityCheck  # checks overlay compatibility
     styleOrigins*: seq[string]  # which arts this comes from
     followups*: seq[string]     # likely next move IDs
     limbsUsed*: set[LimbType]  # which limbs this move uses
@@ -218,6 +254,7 @@ type
     description*: string
 
 # Hash function for FightState deduplication
+# CRITICAL: Only includes POSITION state, NOT overlays (fatigue/damage)
 proc hash*(f: Fighter): Hash =
   var h: Hash = 0
   h = h !& hash(f.pos.x)
@@ -225,10 +262,25 @@ proc hash*(f: Fighter): Hash =
   h = h !& hash(f.pos.facing)
   h = h !& hash(f.pos.stance)
   h = h !& hash(f.pos.balance)
-  h = h !& hash(f.fatigue)
-  h = h !& hash(f.damage)
+  # Limb positions (NOT damage)
+  h = h !& hash(f.leftArm.free)
+  h = h !& hash(f.leftArm.extended)
+  h = h !& hash(f.rightArm.free)
+  h = h !& hash(f.rightArm.extended)
+  h = h !& hash(f.leftLeg.free)
+  h = h !& hash(f.leftLeg.extended)
+  h = h !& hash(f.rightLeg.free)
+  h = h !& hash(f.rightLeg.extended)
+  # Side and control
   h = h !& hash(f.liveSide)
   h = h !& hash(f.control)
+  # Biomechanics
+  h = h !& hash(f.biomech.recovering)
+  h = h !& hash(f.biomech.recoveryFrames)
+  # Momentum
+  h = h !& hash(f.momentum.linear)
+  h = h !& hash(f.momentum.rotational)
+  # NOTE: fatigue and damage are NOT included - they are overlays
   result = !$h
 
 proc hash*(s: FightState): Hash =
@@ -237,5 +289,16 @@ proc hash*(s: FightState): Hash =
   h = h !& hash(s.b)
   h = h !& hash(s.distance)
   result = !$h
+
+# Helper to create default overlay (fresh fighter)
+proc createFreshOverlay*(): RuntimeOverlay =
+  RuntimeOverlay(
+    fatigue: 0.0,
+    damage: 0.0,
+    leftArmDamage: 0.0,
+    rightArmDamage: 0.0,
+    leftLegDamage: 0.0,
+    rightLegDamage: 0.0
+  )
 
 # String representations are automatically generated by the enum type system
