@@ -152,10 +152,10 @@ proc simulateFight*(config: SimulationConfig, db: StateDB = nil): SimulationResu
     if db != nil and config.recordAllStates:
       discard db.recordState(state.position)
 
-    # Check terminal condition
-    if isTerminalPosition(state.position):
+    # Check terminal condition (with overlays)
+    if isTerminalWithOverlays(state.position, state.overlayA, state.overlayB):
       state.position.terminal = true
-      state.position.winner = some(determineWinner(state.position))
+      state.position.winner = some(determineWinnerWithOverlays(state.position, state.overlayA, state.overlayB))
       if db != nil:
         db.recordTerminalState(state.position, "Natural termination")
       break
