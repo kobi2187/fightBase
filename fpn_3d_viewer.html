@@ -244,7 +244,7 @@
         <span>Left Hip Pitch (kick forward/back)</span>
         <span class="slider-value" id="val-l-hip-p">0°</span>
       </div>
-      <input type="range" id="l-hip-p" min="-30" max="120" value="0" step="5" oninput="updatePose()">
+      <input type="range" id="l-hip-p" min="-30" max="200" value="0" step="5" oninput="updatePose()">
     </div>
 
     <div class="slider-group">
@@ -268,7 +268,7 @@
         <span>Right Hip Pitch (kick forward/back)</span>
         <span class="slider-value" id="val-r-hip-p">0°</span>
       </div>
-      <input type="range" id="r-hip-p" min="-30" max="120" value="0" step="5" oninput="updatePose()">
+      <input type="range" id="r-hip-p" min="-30" max="200" value="0" step="5" oninput="updatePose()">
     </div>
 
     <div class="slider-group">
@@ -318,6 +318,7 @@
     <button class="example-btn" onclick="loadPreset('jab')">Jab</button>
     <button class="example-btn" onclick="loadPreset('guard')">Guard Position</button>
     <button class="example-btn" onclick="loadPreset('kick')">Front Kick</button>
+    <button class="example-btn" onclick="loadPreset('highkick')">High Kick to Head</button>
 
     <div class="info">
       <strong>MPN Output:</strong>
@@ -427,41 +428,59 @@
       const mannequin = new THREE.Group();
       const material = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.3 });
 
-      // Head
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), material);
-      head.position.y = 3.6;
-      head.castShadow = true;
-      head.name = 'head';
-      mannequin.add(head);
+      // Build from ground up using forward kinematics
+      // Root is at ground level (y=0)
 
-      // Neck
-      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.15, 8), material);
-      neck.position.y = 3.4;
-      neck.castShadow = true;
-      neck.name = 'neck';
-      mannequin.add(neck);
+      // Hips - the root of the kinematic chain (connected to ground)
+      const hipsGroup = new THREE.Group();
+      hipsGroup.position.y = 1.05; // Height from ground to hip joint
+      hipsGroup.name = 'hips';
 
-      // Torso
-      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 0.3), material);
-      torso.position.y = 2.9;
-      torso.castShadow = true;
-      torso.name = 'torso';
-      mannequin.add(torso);
+      const hipsMesh = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.3, 0.3), material);
+      hipsMesh.castShadow = true;
+      hipsGroup.add(hipsMesh);
 
-      // Hips
-      const hips = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.3, 0.3), material);
-      hips.position.y = 2.35;
-      hips.castShadow = true;
-      hips.name = 'hips';
-      mannequin.add(hips);
+      mannequin.add(hipsGroup);
 
-      // Arms
+      // Torso - connected to hips
+      const torsoGroup = new THREE.Group();
+      torsoGroup.position.y = 0.55; // Distance from hip center to torso center
+      torsoGroup.name = 'torso';
+
+      const torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 0.3), material);
+      torsoMesh.castShadow = true;
+      torsoGroup.add(torsoMesh);
+
+      hipsGroup.add(torsoGroup); // Torso is child of hips
+
+      // Neck - connected to top of torso
+      const neckGroup = new THREE.Group();
+      neckGroup.position.y = 0.475; // From torso center to neck base
+      neckGroup.name = 'neck';
+
+      const neckMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.15, 8), material);
+      neckMesh.position.y = 0.075; // Neck mesh offset
+      neckMesh.castShadow = true;
+      neckGroup.add(neckMesh);
+
+      torsoGroup.add(neckGroup); // Neck is child of torso
+
+      // Head - connected to neck
+      const headGroup = new THREE.Group();
+      headGroup.position.y = 0.15; // From neck base to head center
+      headGroup.name = 'head';
+
+      const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), material);
+      headMesh.position.y = 0.2; // Head mesh offset
+      headMesh.castShadow = true;
+      headGroup.add(headMesh);
+
+      neckGroup.add(headGroup); // Head is child of neck
+
+      // Arms - function to create arm connected to torso
       function createArm(side, sideName) {
-        const armGroup = new THREE.Group();
-        armGroup.name = sideName + 'Arm';
-
         const shoulder = new THREE.Group();
-        shoulder.position.set(side * 0.3, 3.15, 0);
+        shoulder.position.set(side * 0.3, 0.35, 0); // Relative to torso center
         shoulder.name = sideName + 'Shoulder';
 
         const upperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.4, 8), material);
@@ -484,21 +503,20 @@
         elbow.add(hand);
 
         shoulder.add(elbow);
-        armGroup.add(shoulder);
-        return armGroup;
+        return shoulder;
       }
 
-      mannequin.add(createArm(-1, 'left'));
-      mannequin.add(createArm(1, 'right'));
+      // Add arms to torso (not mannequin root)
+      torsoGroup.add(createArm(-1, 'left'));
+      torsoGroup.add(createArm(1, 'right'));
 
-      // Legs
+      // Legs - function to create leg connected to hips
       function createLeg(side, sideName) {
         const legGroup = new THREE.Group();
         legGroup.name = sideName + 'Leg';
-        legGroup.userData.initialX = side * 0.15;
 
         const hip = new THREE.Group();
-        hip.position.set(side * 0.15, 2.2, 0);
+        hip.position.set(side * 0.15, -0.15, 0); // Relative to hips center
         hip.name = sideName + 'Hip';
 
         const upperLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.6, 8), material);
@@ -526,8 +544,9 @@
         return legGroup;
       }
 
-      mannequin.add(createLeg(-1, 'left'));
-      mannequin.add(createLeg(1, 'right'));
+      // Add legs to hips (not mannequin root)
+      hipsGroup.add(createLeg(-1, 'left'));
+      hipsGroup.add(createLeg(1, 'right'));
 
       return mannequin;
     }
@@ -691,12 +710,12 @@
 
       if (lShoulder) {
         lShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.leftShoulderPitch);
-        lShoulder.rotation.z = THREE.MathUtils.degToRad(pose.leftShoulderRoll);
+        lShoulder.rotation.z = THREE.MathUtils.degToRad(-pose.leftShoulderRoll); // Negative = arm goes outward
       }
 
       if (rShoulder) {
         rShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.rightShoulderPitch);
-        rShoulder.rotation.z = THREE.MathUtils.degToRad(-pose.rightShoulderRoll);
+        rShoulder.rotation.z = THREE.MathUtils.degToRad(pose.rightShoulderRoll); // Positive = arm goes outward
       }
 
       // Elbows (negative because elbow bends bring forearm UP/back, not down)
@@ -720,12 +739,12 @@
         rHip.rotation.z = THREE.MathUtils.degToRad(-pose.rightHipRoll);
       }
 
-      // Knees (negative because knee bends bring lower leg BACK, not forward)
+      // Knees (positive rotation bends leg forward/up for kicks)
       const lKnee = mannequin.getObjectByName('leftKnee');
       const rKnee = mannequin.getObjectByName('rightKnee');
 
-      if (lKnee) lKnee.rotation.x = THREE.MathUtils.degToRad(-pose.leftKneeBend);
-      if (rKnee) rKnee.rotation.x = THREE.MathUtils.degToRad(-pose.rightKneeBend);
+      if (lKnee) lKnee.rotation.x = THREE.MathUtils.degToRad(pose.leftKneeBend);
+      if (rKnee) rKnee.rotation.x = THREE.MathUtils.degToRad(pose.rightKneeBend);
 
       // Stance width
       const leftLeg = mannequin.getObjectByName('leftLeg');
@@ -765,9 +784,9 @@
         rightShoulderRoll: Math.floor(Math.random() * 120),
         leftElbowBend: Math.floor(Math.random() * 140),
         rightElbowBend: Math.floor(Math.random() * 140),
-        leftHipPitch: Math.floor(-20 + Math.random() * 100),
+        leftHipPitch: Math.floor(-30 + Math.random() * 230), // -30 to 200 for high kicks
         leftHipRoll: Math.floor((Math.random() - 0.5) * 60),
-        rightHipPitch: Math.floor(-20 + Math.random() * 100),
+        rightHipPitch: Math.floor(-30 + Math.random() * 230), // -30 to 200 for high kicks
         rightHipRoll: Math.floor((Math.random() - 0.5) * 60),
         leftKneeBend: Math.floor(Math.random() * 120),
         rightKneeBend: Math.floor(Math.random() * 120),
@@ -822,6 +841,19 @@
             rightKneeBend: 30,
             leftKneeBend: 25,
             stanceWidth: 25
+          };
+          break;
+        case 'highkick':
+          pose = {
+            ...createNeutralPose(),
+            leanForwardBack: -25, // Lean torso backward
+            hipRotation: 20, // Pelvis rotates forward
+            torsoRotation: -15, // Torso counters
+            rightHipPitch: 170, // High kick to head level
+            rightKneeBend: 15, // Nearly extended leg
+            leftKneeBend: 20, // Standing leg slightly bent
+            leftHipPitch: -10, // Standing leg stable
+            stanceWidth: 30
           };
           break;
       }
