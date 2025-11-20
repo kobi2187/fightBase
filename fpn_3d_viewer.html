@@ -99,6 +99,10 @@
     </div>
 
     <div style="margin-top: 10px;">
+      <button onclick="generateRandomState()" style="background: #FF9800; width: 100%;">🎲 Generate Random State</button>
+    </div>
+
+    <div style="margin-top: 10px;">
       <button class="example-btn" onclick="loadExample(1)">Fresh</button>
       <button class="example-btn" onclick="loadExample(2)">Exchange</button>
       <button class="example-btn" onclick="loadExample(3)">Close</button>
@@ -463,6 +467,71 @@
     function resetCamera() {
       camera.position.set(0, 3, 8);
       camera.lookAt(0, 2, 0);
+    }
+
+    function generateRandomState() {
+      // Generate random valid fighter state
+      function randomFighter() {
+        const stances = ['o', 's', 'n', 'q', 'w', 'r', 'b', 'z'];
+        const stance = stances[Math.floor(Math.random() * stances.length)];
+
+        // Balance: 40-100% (can't be too low or fighter falls)
+        const balance = Math.floor(40 + Math.random() * 60);
+
+        // Fatigue: 0-80% (rarely exhausted at start)
+        const fatigue = Math.floor(Math.random() * 80);
+
+        // Damage: 0-50% (rarely heavily damaged)
+        const damage = Math.floor(Math.random() * 50);
+
+        // Momentum: -5 to +5 m/s linear, -30 to +30 deg/s rotational
+        const linearMom = Math.floor((Math.random() - 0.5) * 10);
+        const rotMom = Math.floor((Math.random() - 0.5) * 60);
+
+        // Biomechanics: hip rotation -45 to +45, torso -35 to +35
+        const hipRot = Math.floor((Math.random() - 0.5) * 90);
+        const torsoRot = Math.floor((Math.random() - 0.5) * 70);
+
+        // Weight distribution: 20-80% (not too extreme)
+        const weight = Math.floor(20 + Math.random() * 60);
+
+        // Recovery: 20% chance of recovering
+        const recovering = Math.random() < 0.2 ? '1' : '0';
+        const frames = recovering === '1' ? Math.floor(1 + Math.random() * 5) : 0;
+
+        // Limbs: - = free, E = extended, X = damaged, B = both
+        const limbStates = ['-', 'E', 'X', 'B'];
+        const limbs = Array(4).fill(0).map(() => {
+          const rand = Math.random();
+          if (rand < 0.6) return '-';      // 60% free
+          if (rand < 0.8) return 'E';      // 20% extended
+          if (rand < 0.95) return 'X';     // 15% damaged
+          return 'B';                       // 5% both
+        }).join('');
+
+        return `${stance}.${balance}.${fatigue}.${damage}.${linearMom},${rotMom}.${hipRot},${torsoRot},${weight},${recovering},${frames}.${limbs}`;
+      }
+
+      // Distance: 70% medium/short, 20% long, 10% contact/very long
+      const distances = ['c', 's', 's', 'm', 'm', 'm', 'l', 'l', 'v'];
+      const distance = distances[Math.floor(Math.random() * distances.length)];
+
+      // Turn: 50/50
+      const turn = Math.random() < 0.5 ? 'A' : 'B';
+
+      // Move count: 0-20
+      const moveCount = Math.floor(Math.random() * 21);
+
+      // Generate FPN
+      const fighterA = randomFighter();
+      const fighterB = randomFighter();
+      const fpn = `${fighterA}/${fighterB}/${distance}/${turn}/${moveCount}`;
+
+      // Set and load
+      document.getElementById('fpn').value = fpn;
+      loadFPN();
+
+      console.log('Generated random state:', fpn);
     }
 
     // Simplified mouse controls
