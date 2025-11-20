@@ -275,7 +275,8 @@ proc createCross*(): Move =
   result = Move(
     id: "cross_right",
     name: "Cross (Boxing/Karate)",
-    category: Straight,
+    moveType: mtOffensive,
+    category: mcStraightStrike,
     energyCost: 0.12,
     timeCost: 0.35,  # Slower than jab, more power
     reach: 0.8,
@@ -289,6 +290,22 @@ proc createCross*(): Move =
       balanceChange: -0.08,
       heightChange: 0.0
     ),
+    physicsEffect: PhysicsEffect(
+      linearMomentum: 0.4,
+      rotationalMomentum: 0.0,
+      hipRotationDelta: 15.0,
+      torsoRotationDelta: 20.0,
+      weightShift: 0.15,
+      commitmentLevel: 0.3,
+      recoveryFramesOnMiss: 2,
+      recoveryFramesOnHit: 1
+    ),
+    damageEffect: DamageEffect(
+      directDamage: 0.15,
+      fatigueInflicted: 0.05,
+      targetLimb: none(LimbType),
+      limbDamage: 0.0
+    ),
     styleOrigins: @["Boxing", "Karate", "MMA"],
     followups: @["hook_left", "step_back", "clinch_entry"],
     limbsUsed: {RightArm},
@@ -297,21 +314,27 @@ proc createCross*(): Move =
 
   result.prerequisites = proc(state: FightState, who: FighterID): bool =
     let fighter = if who == FighterA: state.a else: state.b
-    result = fighter.rightArm.free and fighter.fatigue < 0.9 and fighter.pos.balance >= 0.3
+    result = fighter.rightArm.free and fighter.pos.balance >= 0.3
+
+  result.viabilityCheck = moveViability
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
 
-    applyFatigue(attacker[], 0.12)
     extendLimb(attacker[].rightArm)
 
     # More power, better hit chance
     if rand(1.0) > defender[].pos.balance * 0.4:
-      applyDamage(defender[], 0.15)
       applyBalanceChange(defender[], -0.15)
 
     retractLimb(attacker[].rightArm)
+
+    # Update physics
+    attacker[].momentum.linear += result.physicsEffect.linearMomentum
+    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
+    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
+
     state.sequenceLength += 1
 
 proc createRoundhouseKick*(): Move =
@@ -319,7 +342,8 @@ proc createRoundhouseKick*(): Move =
   result = Move(
     id: "roundhouse_right",
     name: "Roundhouse Kick (Muay Thai)",
-    category: Arc,
+    moveType: mtOffensive,
+    category: mcArcStrike,
     energyCost: 0.25,
     timeCost: 0.55,  # Takes time to chamber and execute
     reach: 1.0,
@@ -333,6 +357,22 @@ proc createRoundhouseKick*(): Move =
       balanceChange: -0.2,
       heightChange: 0.0
     ),
+    physicsEffect: PhysicsEffect(
+      linearMomentum: 0.3,
+      rotationalMomentum: 0.5,
+      hipRotationDelta: 45.0,
+      torsoRotationDelta: 30.0,
+      weightShift: 0.2,
+      commitmentLevel: 0.6,
+      recoveryFramesOnMiss: 3,
+      recoveryFramesOnHit: 2
+    ),
+    damageEffect: DamageEffect(
+      directDamage: 0.25,
+      fatigueInflicted: 0.08,
+      targetLimb: none(LimbType),
+      limbDamage: 0.0
+    ),
     styleOrigins: @["Muay Thai", "Karate", "Taekwondo"],
     followups: @["step_back", "clinch_entry", "switch_stance"],
     limbsUsed: {RightLeg, LeftLeg},  # Uses both legs (standing leg + kicking leg)
@@ -341,25 +381,29 @@ proc createRoundhouseKick*(): Move =
 
   result.prerequisites = proc(state: FightState, who: FighterID): bool =
     let fighter = if who == FighterA: state.a else: state.b
-    result = fighter.rightLeg.free and fighter.pos.balance >= 0.6 and fighter.fatigue < 0.8
+    result = fighter.rightLeg.free and fighter.pos.balance >= 0.6
+
+  result.viabilityCheck = moveViability
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
 
-    applyFatigue(attacker[], 0.25)
     applyBalanceChange(attacker[], -0.2)
     extendLimb(attacker[].rightLeg)
 
-    # High damage if lands
+    # High damage if lands (position check only)
     if rand(1.0) > defender[].pos.balance * 0.6:
-      applyDamage(defender[], 0.25)
       applyBalanceChange(defender[], -0.2)
-    else:
-      # Miss costs more energy
-      applyFatigue(attacker[], 0.1)
 
     retractLimb(attacker[].rightLeg)
+
+    # Update physics
+    attacker[].momentum.linear += result.physicsEffect.linearMomentum
+    attacker[].momentum.rotational += result.physicsEffect.rotationalMomentum
+    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
+    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
+
     state.sequenceLength += 1
 
 proc createTeep*(): Move =
@@ -367,7 +411,8 @@ proc createTeep*(): Move =
   result = Move(
     id: "teep_front",
     name: "Teep (Muay Thai)",
-    category: Push,
+    moveType: mtOffensive,
+    category: mcPushStrike,
     energyCost: 0.15,
     timeCost: 0.4,  # Moderately fast
     reach: 1.2,
@@ -381,6 +426,22 @@ proc createTeep*(): Move =
       balanceChange: -0.1,
       heightChange: 0.0
     ),
+    physicsEffect: PhysicsEffect(
+      linearMomentum: 0.25,
+      rotationalMomentum: 0.0,
+      hipRotationDelta: 5.0,
+      torsoRotationDelta: 5.0,
+      weightShift: 0.1,
+      commitmentLevel: 0.3,
+      recoveryFramesOnMiss: 2,
+      recoveryFramesOnHit: 1
+    ),
+    damageEffect: DamageEffect(
+      directDamage: 0.08,
+      fatigueInflicted: 0.05,
+      targetLimb: none(LimbType),
+      limbDamage: 0.0
+    ),
     styleOrigins: @["Muay Thai"],
     followups: @["step_forward", "roundhouse_right", "retreat"],
     limbsUsed: {LeftLeg, RightLeg},  # Uses both legs
@@ -389,17 +450,21 @@ proc createTeep*(): Move =
 
   result.prerequisites = proc(state: FightState, who: FighterID): bool =
     let fighter = if who == FighterA: state.a else: state.b
-    result = fighter.leftLeg.free and fighter.fatigue < 0.9 and fighter.pos.balance >= 0.5
+    result = fighter.leftLeg.free and fighter.pos.balance >= 0.5
+
+  result.viabilityCheck = moveViability
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
 
-    applyFatigue(attacker[], 0.15)
-
     # Creates distance
     changeDistance(state, 0.4)
     applyBalanceChange(defender[], -0.15)
+
+    # Update physics
+    attacker[].momentum.linear += result.physicsEffect.linearMomentum
+    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
 
     state.sequenceLength += 1
 
@@ -412,7 +477,8 @@ proc createClinchEntry*(): Move =
   result = Move(
     id: "clinch_entry",
     name: "Clinch Entry (Muay Thai/Wrestling)",
-    category: Clinch,
+    moveType: mtOffensive,
+    category: mcClinchEntry,
     energyCost: 0.2,
     timeCost: 0.45,
     reach: 0.5,
@@ -426,6 +492,22 @@ proc createClinchEntry*(): Move =
       balanceChange: -0.05,
       heightChange: 0.0
     ),
+    physicsEffect: PhysicsEffect(
+      linearMomentum: 0.3,
+      rotationalMomentum: 0.0,
+      hipRotationDelta: 0.0,
+      torsoRotationDelta: 0.0,
+      weightShift: 0.1,
+      commitmentLevel: 0.5,
+      recoveryFramesOnMiss: 3,
+      recoveryFramesOnHit: 1
+    ),
+    damageEffect: DamageEffect(
+      directDamage: 0.0,
+      fatigueInflicted: 0.05,
+      targetLimb: none(LimbType),
+      limbDamage: 0.0
+    ),
     styleOrigins: @["Muay Thai", "Wrestling", "Judo"],
     followups: @["knee_strike", "throw_hip", "break_clinch"],
     limbsUsed: {LeftArm, RightArm},  # Uses both arms
@@ -434,16 +516,18 @@ proc createClinchEntry*(): Move =
 
   result.prerequisites = proc(state: FightState, who: FighterID): bool =
     let fighter = if who == FighterA: state.a else: state.b
-    result = state.distance in {Short, Medium} and
-             hasFreeLimbs(fighter, 2) and
-             fighter.fatigue < 0.85
+    result = state.distance in {Short, Medium} and hasFreeLimbs(fighter, 2)
+
+  result.viabilityCheck = moveViability
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
 
-    applyFatigue(attacker[], 0.2)
     attacker[].control = Clinch
     state.distance = Contact
+
+    # Update physics
+    attacker[].momentum.linear += result.physicsEffect.linearMomentum
 
     state.sequenceLength += 1
 
@@ -452,7 +536,8 @@ proc createHipThrow*(): Move =
   result = Move(
     id: "throw_hip",
     name: "Hip Throw (Judo)",
-    category: Throw,
+    moveType: mtOffensive,
+    category: mcThrow,
     energyCost: 0.35,
     timeCost: 0.6,  # Takes significant time
     reach: 0.3,
@@ -466,6 +551,22 @@ proc createHipThrow*(): Move =
       balanceChange: -0.3,
       heightChange: -1.0
     ),
+    physicsEffect: PhysicsEffect(
+      linearMomentum: 0.1,
+      rotationalMomentum: 0.8,
+      hipRotationDelta: 90.0,
+      torsoRotationDelta: 90.0,
+      weightShift: 0.3,
+      commitmentLevel: 0.8,
+      recoveryFramesOnMiss: 5,
+      recoveryFramesOnHit: 2
+    ),
+    damageEffect: DamageEffect(
+      directDamage: 0.2,
+      fatigueInflicted: 0.1,
+      targetLimb: none(LimbType),
+      limbDamage: 0.0
+    ),
     styleOrigins: @["Judo", "Wrestling", "Aikido"],
     followups: @["mount", "side_control", "stand_up"],
     limbsUsed: {LeftArm, RightArm, LeftLeg, RightLeg},  # Uses everything
@@ -477,25 +578,27 @@ proc createHipThrow*(): Move =
     let opponent = if who == FighterA: state.b else: state.a
     result = state.distance == Contact and
              fighter.control in {Clinch, Underhook} and
-             opponent.pos.balance < 0.7 and
-             fighter.fatigue < 0.75
+             opponent.pos.balance < 0.7
+
+  result.viabilityCheck = moveViability
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
 
-    applyFatigue(attacker[], 0.35)
-
     # High success when opponent off-balance
     if defender[].pos.balance < 0.5 or rand(1.0) < 0.6:
       # Successful throw
       defender[].pos.balance = 0.1
-      applyDamage(defender[], 0.2)
       attacker[].control = Mount
     else:
       # Failed attempt
-      applyFatigue(attacker[], 0.15)
       applyBalanceChange(attacker[], -0.2)
+
+    # Update physics
+    attacker[].momentum.rotational += result.physicsEffect.rotationalMomentum
+    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
+    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
 
     state.sequenceLength += 1
 
@@ -508,7 +611,8 @@ proc createStepBack*(): Move =
   result = Move(
     id: "step_back",
     name: "Step Back",
-    category: Displacement,
+    moveType: mtPositional,
+    category: mcStep,
     energyCost: 0.08,
     timeCost: 0.2,  # Quick defensive movement
     reach: 0.0,
@@ -522,6 +626,22 @@ proc createStepBack*(): Move =
       balanceChange: 0.05,
       heightChange: 0.0
     ),
+    physicsEffect: PhysicsEffect(
+      linearMomentum: -0.2,  # Negative = moving backward
+      rotationalMomentum: 0.0,
+      hipRotationDelta: 0.0,
+      torsoRotationDelta: 0.0,
+      weightShift: -0.05,
+      commitmentLevel: 0.1,
+      recoveryFramesOnMiss: 0,
+      recoveryFramesOnHit: 0
+    ),
+    damageEffect: DamageEffect(
+      directDamage: 0.0,
+      fatigueInflicted: 0.0,
+      targetLimb: none(LimbType),
+      limbDamage: 0.0
+    ),
     styleOrigins: @["Boxing", "Karate", "All"],
     followups: @["jab_left", "teep_front", "circle_left"],
     limbsUsed: {LeftLeg, RightLeg},  # Uses legs for movement
@@ -530,14 +650,18 @@ proc createStepBack*(): Move =
 
   result.prerequisites = proc(state: FightState, who: FighterID): bool =
     let fighter = if who == FighterA: state.a else: state.b
-    result = fighter.fatigue < 0.9 and fighter.pos.balance >= 0.4
+    result = fighter.pos.balance >= 0.4
+
+  result.viabilityCheck = moveViability
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var fighter = if who == FighterA: addr state.a else: addr state.b
 
-    applyFatigue(fighter[], 0.08)
     changeDistance(state, 0.5)
     applyBalanceChange(fighter[], 0.05)
+
+    # Update physics
+    fighter[].momentum.linear += result.physicsEffect.linearMomentum
 
     state.sequenceLength += 1
 
@@ -550,7 +674,8 @@ proc createBlockAndCounter*(): Move =
   result = Move(
     id: "block_counter_right",
     name: "Block-and-Counter (Wing Chun)",
-    category: Counter,
+    moveType: mtDefensive,
+    category: mcCounter,
     energyCost: 0.15,
     timeCost: 0.3,  # Quick simultaneous action
     reach: 0.7,
@@ -564,6 +689,22 @@ proc createBlockAndCounter*(): Move =
       balanceChange: 0.0,
       heightChange: 0.0
     ),
+    physicsEffect: PhysicsEffect(
+      linearMomentum: 0.15,
+      rotationalMomentum: 0.0,
+      hipRotationDelta: 10.0,
+      torsoRotationDelta: 15.0,
+      weightShift: 0.05,
+      commitmentLevel: 0.25,
+      recoveryFramesOnMiss: 1,
+      recoveryFramesOnHit: 1
+    ),
+    damageEffect: DamageEffect(
+      directDamage: 0.12,
+      fatigueInflicted: 0.04,
+      targetLimb: none(LimbType),
+      limbDamage: 0.0
+    ),
     styleOrigins: @["Wing Chun", "Krav Maga", "JKD"],
     followups: @["trap_strike", "step_back"],
     limbsUsed: {LeftArm, RightArm},  # Uses both arms simultaneously
@@ -572,20 +713,23 @@ proc createBlockAndCounter*(): Move =
 
   result.prerequisites = proc(state: FightState, who: FighterID): bool =
     let fighter = if who == FighterA: state.a else: state.b
-    result = fighter.leftArm.free and fighter.rightArm.free and
-             fighter.fatigue < 0.85 and fighter.pos.balance >= 0.5
+    result = fighter.leftArm.free and fighter.rightArm.free and fighter.pos.balance >= 0.5
+
+  result.viabilityCheck = moveViability
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
 
-    applyFatigue(attacker[], 0.15)
-
     # Block reduces incoming damage (defensive benefit)
     # Counter punch has chance to land
     if rand(1.0) > defender[].pos.balance * 0.55:
-      applyDamage(defender[], 0.12)
       applyBalanceChange(defender[], -0.08)
+
+    # Update physics
+    attacker[].momentum.linear += result.physicsEffect.linearMomentum
+    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
+    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
 
     state.sequenceLength += 1
 
@@ -594,7 +738,8 @@ proc createStepAndJab*(): Move =
   result = Move(
     id: "step_jab_combo",
     name: "Step-and-Jab",
-    category: Straight,
+    moveType: mtOffensive,
+    category: mcStraightStrike,
     energyCost: 0.1,
     timeCost: 0.35,  # Combined time
     reach: 0.9,  # Extended reach due to step
@@ -608,6 +753,22 @@ proc createStepAndJab*(): Move =
       balanceChange: -0.03,
       heightChange: 0.0
     ),
+    physicsEffect: PhysicsEffect(
+      linearMomentum: 0.3,
+      rotationalMomentum: 0.0,
+      hipRotationDelta: 8.0,
+      torsoRotationDelta: 12.0,
+      weightShift: 0.1,
+      commitmentLevel: 0.2,
+      recoveryFramesOnMiss: 2,
+      recoveryFramesOnHit: 1
+    ),
+    damageEffect: DamageEffect(
+      directDamage: 0.08,
+      fatigueInflicted: 0.03,
+      targetLimb: none(LimbType),
+      limbDamage: 0.0
+    ),
     styleOrigins: @["Boxing", "Karate", "All"],
     followups: @["cross_right", "step_back"],
     limbsUsed: {LeftArm, LeftLeg, RightLeg},  # Arm + footwork
@@ -616,20 +777,24 @@ proc createStepAndJab*(): Move =
 
   result.prerequisites = proc(state: FightState, who: FighterID): bool =
     let fighter = if who == FighterA: state.a else: state.b
-    result = fighter.leftArm.free and
-             fighter.fatigue < 0.85 and fighter.pos.balance >= 0.6
+    result = fighter.leftArm.free and fighter.pos.balance >= 0.6
+
+  result.viabilityCheck = moveViability
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
 
-    applyFatigue(attacker[], 0.1)
     changeDistance(state, -0.3)  # Close distance
 
     # Better chance to land due to forward momentum
     if rand(1.0) > defender[].pos.balance * 0.45:
-      applyDamage(defender[], 0.08)
       applyBalanceChange(defender[], -0.06)
+
+    # Update physics
+    attacker[].momentum.linear += result.physicsEffect.linearMomentum
+    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
+    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
 
     state.sequenceLength += 1
 
@@ -647,8 +812,6 @@ proc initializeMoves*() =
   registerMove(createClinchEntry())
   registerMove(createHipThrow())
   registerMove(createStepBack())
-
-  # Combination moves
   registerMove(createBlockAndCounter())
   registerMove(createStepAndJab())
 

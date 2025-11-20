@@ -122,13 +122,13 @@ proc isBiomechanicallyViable*(fighter: Fighter, move: Move): bool =
   if absHipRot > 60.0:
     # Hips heavily rotated - limited options
     case move.category
-    of Straight, Arc:
+    of mcStraightStrike, mcArcStrike:
       # Can only strike on the side the hips are rotated toward
       # For now, simplified: just harder to do opposite strikes
       if move.physicsEffect.hipRotationDelta * fighter.biomech.hipRotation < 0:
         # Trying to rotate opposite way - need to unwind first
         return false
-    of Throw, Takedown:
+    of mcThrow, mcTakedown:
       # Throws require neutral hips
       return false
     else:
@@ -138,7 +138,7 @@ proc isBiomechanicallyViable*(fighter: Fighter, move: Move): bool =
   if fighter.biomech.weightDistribution < 0.2 or fighter.biomech.weightDistribution > 0.8:
     # Weight heavily on one leg
     case move.category
-    of Sweep, Trip, Throw:
+    of mcSweep, mcTrip, mcThrow:
       return false  # Need balanced base
     else:
       discard

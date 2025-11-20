@@ -156,9 +156,6 @@ proc checkBasicPrerequisites*(state: FightState, who: FighterID, move: Move): bo
   if not hasFreeLimbs(fighter, 1): return false
   if not isStanceCompatible(fighter, move): return false
 
-  # Physics-based constraints (momentum, biomechanics)
-  if not validateMovePhysics(fighter, move): return false
-
   # Category-specific checks
   case move.category
   of mcStraightStrike, mcArcStrike, mcWhipStrike, mcPushStrike:
@@ -207,10 +204,10 @@ proc isTerminalPosition*(state: FightState): bool =
   if not hasFreeLimbs(state.b, 1) and state.a.control in {Mount, BackControl, SideControl}:
     return true  # B fully controlled
 
-  # Check for dominant locks/chokes
-  if state.a.control in {Lock, Choke} and state.b.pos.balance < 0.5:
+  # Check for dominant control positions
+  if state.a.control in {BackControl, Mount, SideControl} and state.b.pos.balance < 0.5:
     return true
-  if state.b.control in {Lock, Choke} and state.a.pos.balance < 0.5:
+  if state.b.control in {BackControl, Mount, SideControl} and state.a.pos.balance < 0.5:
     return true
 
   result = false
@@ -232,8 +229,8 @@ proc determineWinner*(state: FightState): FighterID =
   ## Determine who won in a terminal state (position-based)
   ## For overlay-aware winner determination, use determineWinnerWithOverlays
   # Factor in control
-  if state.a.control in {Mount, BackControl, Lock, Choke}: return FighterA
-  if state.b.control in {Mount, BackControl, Lock, Choke}: return FighterB
+  if state.a.control in {Mount, BackControl, SideControl}: return FighterA
+  if state.b.control in {Mount, BackControl, SideControl}: return FighterB
 
   # Overall balance condition
   if state.a.pos.balance > state.b.pos.balance: FighterA else: FighterB
@@ -245,8 +242,8 @@ proc determineWinnerWithOverlays*(state: FightState, overlayA: RuntimeOverlay, o
   let bScore = state.b.pos.balance + (1.0 - overlayB.damage) + (1.0 - overlayB.fatigue)
 
   # Factor in control
-  if state.a.control in {Mount, BackControl, Lock, Choke}: return FighterA
-  if state.b.control in {Mount, BackControl, Lock, Choke}: return FighterB
+  if state.a.control in {Mount, BackControl, SideControl}: return FighterA
+  if state.b.control in {Mount, BackControl, SideControl}: return FighterB
 
   # Overall condition
   if aScore > bScore: FighterA else: FighterB
