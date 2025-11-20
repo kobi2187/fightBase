@@ -150,18 +150,18 @@
     <h3>Body Position</h3>
     <div class="slider-group">
       <div class="slider-label">
-        <span>Lean Forward/Back</span>
-        <span class="slider-value" id="val-lean-fb">0 cm</span>
+        <span>Torso Lean Forward/Back (from hip)</span>
+        <span class="slider-value" id="val-lean-fb">0°</span>
       </div>
-      <input type="range" id="lean-fb" min="-50" max="50" value="0" step="1" oninput="updatePose()">
+      <input type="range" id="lean-fb" min="-45" max="45" value="0" step="1" oninput="updatePose()">
     </div>
 
     <div class="slider-group">
       <div class="slider-label">
-        <span>Lean Left/Right</span>
-        <span class="slider-value" id="val-lean-lr">0 cm</span>
+        <span>Torso Lean Left/Right (from hip)</span>
+        <span class="slider-value" id="val-lean-lr">0°</span>
       </div>
-      <input type="range" id="lean-lr" min="-40" max="40" value="0" step="1" oninput="updatePose()">
+      <input type="range" id="lean-lr" min="-45" max="45" value="0" step="1" oninput="updatePose()">
     </div>
 
     <h3>Torso Rotation</h3>
@@ -406,8 +406,8 @@
 
       fighterA.position.set(-2, 0, 0);
       fighterB.position.set(2, 0, 0);
-      fighterA.rotation.y = Math.PI / 2;
-      fighterB.rotation.y = -Math.PI / 2;
+      fighterA.rotation.y = -Math.PI / 2; // Face toward +X (toward B)
+      fighterB.rotation.y = Math.PI / 2;  // Face toward -X (toward A)
 
       scene.add(fighterA);
       scene.add(fighterB);
@@ -613,8 +613,8 @@
       }
 
       // Update value displays
-      document.getElementById('val-lean-fb').textContent = pose.leanForwardBack + ' cm';
-      document.getElementById('val-lean-lr').textContent = pose.leanLeftRight + ' cm';
+      document.getElementById('val-lean-fb').textContent = pose.leanForwardBack + '°';
+      document.getElementById('val-lean-lr').textContent = pose.leanLeftRight + '°';
       document.getElementById('val-hip-rot').textContent = pose.hipRotation + '°';
       document.getElementById('val-torso-rot').textContent = pose.torsoRotation + '°';
       document.getElementById('val-neck-rot').textContent = pose.neckRotation + '°';
@@ -677,28 +677,28 @@
     }
 
     function poseMannequin(mannequin, pose) {
-      // Separate upper/lower body lean for more realistic posture
-      // Lower body (hips) gets 30% of lean, upper body (torso) gets 70%
+      // Torso angle from hips - lean is now in degrees, not cm
       const hips = mannequin.getObjectByName('hips');
       const torso = mannequin.getObjectByName('torso');
       const neck = mannequin.getObjectByName('neck');
       const head = mannequin.getObjectByName('head');
 
-      const leanFBRad = pose.leanForwardBack * 0.01 * 0.15; // Increased multiplier for higher range
-      const leanLRRad = pose.leanLeftRight * 0.01 * 0.15;
+      // Convert lean angles to radians
+      // rotation.x = forward/back lean (pitch around x-axis)
+      // rotation.z = left/right lean (roll around z-axis)
+      const leanFBRad = THREE.MathUtils.degToRad(pose.leanForwardBack);
+      const leanLRRad = THREE.MathUtils.degToRad(pose.leanLeftRight);
 
-      // Apply 30% lean to hips (lower body)
-      if (hips) {
-        hips.rotation.z = leanFBRad * 0.3;
-        hips.rotation.x = leanLRRad * 0.3;
-        hips.rotation.y = THREE.MathUtils.degToRad(pose.hipRotation);
+      // Torso gets the full lean angle (torso angle from hip)
+      if (torso) {
+        torso.rotation.x = leanFBRad;  // Forward/back
+        torso.rotation.z = leanLRRad;  // Left/right
+        torso.rotation.y = THREE.MathUtils.degToRad(pose.torsoRotation);
       }
 
-      // Apply 70% lean to torso (upper body) - this creates natural bend at waist
-      if (torso) {
-        torso.rotation.z = leanFBRad * 0.7;
-        torso.rotation.x = leanLRRad * 0.7;
-        torso.rotation.y = THREE.MathUtils.degToRad(pose.torsoRotation);
+      // Hips stay level (no lean)
+      if (hips) {
+        hips.rotation.y = THREE.MathUtils.degToRad(pose.hipRotation);
       }
 
       if (neck) neck.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
@@ -740,11 +740,12 @@
       }
 
       // Knees (positive rotation bends leg forward/up for kicks)
+      // Swapped because controls were reversed
       const lKnee = mannequin.getObjectByName('leftKnee');
       const rKnee = mannequin.getObjectByName('rightKnee');
 
-      if (lKnee) lKnee.rotation.x = THREE.MathUtils.degToRad(pose.leftKneeBend);
-      if (rKnee) rKnee.rotation.x = THREE.MathUtils.degToRad(pose.rightKneeBend);
+      if (lKnee) lKnee.rotation.x = THREE.MathUtils.degToRad(pose.rightKneeBend);
+      if (rKnee) rKnee.rotation.x = THREE.MathUtils.degToRad(pose.leftKneeBend);
 
       // Stance width
       const leftLeg = mannequin.getObjectByName('leftLeg');
@@ -773,8 +774,8 @@
 
     function randomPose() {
       const pose = {
-        leanForwardBack: Math.floor((Math.random() - 0.5) * 80), // Increased from 30
-        leanLeftRight: Math.floor((Math.random() - 0.5) * 60), // Increased from 20
+        leanForwardBack: Math.floor((Math.random() - 0.5) * 90), // -45 to 45 degrees
+        leanLeftRight: Math.floor((Math.random() - 0.5) * 90), // -45 to 45 degrees
         hipRotation: Math.floor((Math.random() - 0.5) * 60),
         torsoRotation: Math.floor((Math.random() - 0.5) * 60),
         neckRotation: Math.floor((Math.random() - 0.5) * 80),
