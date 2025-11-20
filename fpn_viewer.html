@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>FPN Fight Position Viewer</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 20px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+    }
+    #controls {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    textarea {
+      width: 100%;
+      height: 80px;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      font-size: 14px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    #canvas-container {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+    canvas {
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    .examples {
+      margin-top: 10px;
+      font-size: 12px;
+    }
+    .example-link {
+      color: #4CAF50;
+      cursor: pointer;
+      text-decoration: underline;
+      margin-right: 15px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🥊 FPN Fight Position Viewer</h1>
+
+  <div id="controls">
+    <label for="fpn"><strong>Enter FPN String:</strong></label>
+    <textarea id="fpn" placeholder="o.95.15.0.3,5.10,15,55,0,0.----/s.90.20.5.-1,0.-5,-10,45,0,0.----/m/A/5"></textarea>
+
+    <button onclick="renderFPN()">Render Fight Position</button>
+
+    <div class="examples">
+      <strong>Examples:</strong><br>
+      <span class="example-link" onclick="loadExample(1)">Fresh fighters</span>
+      <span class="example-link" onclick="loadExample(2)">After exchange</span>
+      <span class="example-link" onclick="loadExample(3)">Close range</span>
+      <span class="example-link" onclick="loadExample(4)">One damaged</span>
+    </div>
+  </div>
+
+  <div id="canvas-container">
+    <canvas id="canvas" width="800" height="600"></canvas>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    const examples = {
+      1: "o.100.0.0.0,0.0,0,50,0,0.----/s.100.0.0.0,0.0,0,50,0,0.----/m/A/0",
+      2: "o.85.25.5.2,10.15,20,55,0,0.--E-/s.80.30.8.-1,5.-10,-15,45,0,0.-E--/s/B/5",
+      3: "o.70.40.12.3,15.25,30,60,0,0.----/s.65.45.15.1,8.-15,-25,40,1,2.----/c/A/8",
+      4: "o.90.20.2.1,5.10,15,55,0,0.----/s.50.35.35.-2,0.-20,-30,35,1,4.X-E-/s/A/12"
+    };
+
+    function loadExample(num) {
+      document.getElementById('fpn').value = examples[num];
+      renderFPN();
+    }
+
+    function parseFPN(fpn) {
+      const parts = fpn.trim().split('/');
+      if (parts.length !== 5) throw new Error('Invalid FPN format');
+
+      return {
+        fighterA: parseFighter(parts[0]),
+        fighterB: parseFighter(parts[1]),
+        distance: parts[2],
+        turn: parts[3],
+        moveCount: parseInt(parts[4])
+      };
+    }
+
+    function parseFighter(fpnFighter) {
+      const parts = fpnFighter.split('.');
+      if (parts.length !== 7) throw new Error('Invalid fighter format');
+
+      const mom = parts[4].split(',');
+      const bio = parts[5].split(',');
+
+      return {
+        stance: parts[0],
+        balance: parseInt(parts[1]) / 100,
+        fatigue: parseInt(parts[2]) / 100,
+        damage: parseInt(parts[3]) / 100,
+        momentum: {
+          linear: parseInt(mom[0]) / 10,
+          rotational: parseInt(mom[1])
+        },
+        biomech: {
+          hipRot: parseInt(bio[0]),
+          torsoRot: parseInt(bio[1]),
+          weight: parseInt(bio[2]) / 100,
+          recovering: bio[3] === '1',
+          frames: parseInt(bio[4])
+        },
+        limbs: parts[6]
+      };
+    }
+
+    function getStanceName(code) {
+      const map = {
+        'o': 'Orthodox', 's': 'Southpaw', 'n': 'Neutral',
+        'q': 'Square', 'w': 'Wide', 'r': 'Narrow',
+        'b': 'Bladed', 'z': 'Wrestling'
+      };
+      return map[code] || code;
+    }
+
+    function getDistanceName(code) {
+      const map = {
+        'c': 'Contact', 's': 'Short', 'm': 'Medium',
+        'l': 'Long', 'v': 'Very Long'
+      };
+      return map[code] || code;
+    }
+
+    function getColorForCondition(damage, fatigue) {
+      if (damage > 0.5) return '#d32f2f';
+      if (damage > 0.2) return '#ff6f00';
+      if (fatigue > 0.7) return '#1976d2';
+      if (fatigue > 0.4) return '#0277bd';
+      return '#000';
+    }
+
+    function drawStickFigure(fighter, centerX, facingRight) {
+      const baseY = canvas.height * 0.7;
+      const height = 200;
+
+      // Balance affects lean
+      const balanceLean = (1 - fighter.balance) * 20;
+      const lean = facingRight ? balanceLean : -balanceLean;
+
+      // Positions
+      const head = {x: centerX + lean, y: baseY - height};
+      const neck = {x: centerX + lean, y: baseY - height + 15};
+      const torso = {x: centerX, y: neck.y + 30};
+      const hips = {x: centerX, y: baseY - height * 0.4};
+
+      const color = getColorForCondition(fighter.damage, fighter.fatigue);
+      ctx.strokeStyle = color;
+      ctx.fillStyle = fighter.damage > 0.5 ? '#ffcccc' : 'white';
+
+      // Head
+      ctx.beginPath();
+      ctx.arc(head.x, head.y, 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Torso
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(neck.x, neck.y);
+      ctx.lineTo(torso.x, torso.y);
+      ctx.lineTo(hips.x, hips.y);
+      ctx.stroke();
+
+      // Arms
+      const shoulderWidth = 40;
+      const leftShoulder = {x: torso.x - shoulderWidth/2, y: torso.y};
+      const rightShoulder = {x: torso.x + shoulderWidth/2, y: torso.y};
+
+      ctx.lineWidth = 2.5;
+
+      // Left arm (guard position or extended)
+      const leftExtended = fighter.limbs[0] === 'E' || fighter.limbs[0] === 'B';
+      const leftDamaged = fighter.limbs[0] === 'X' || fighter.limbs[0] === 'B';
+
+      if (leftDamaged) ctx.setLineDash([5, 5]);
+
+      const leftElbow = {
+        x: leftShoulder.x + (leftExtended ? -30 : -20),
+        y: leftShoulder.y + (leftExtended ? 10 : 30)
+      };
+      const leftHand = {
+        x: leftElbow.x + (leftExtended ? -40 : -10),
+        y: leftElbow.y + (leftExtended ? 15 : 20)
+      };
+
+      ctx.beginPath();
+      ctx.moveTo(leftShoulder.x, leftShoulder.y);
+      ctx.lineTo(leftElbow.x, leftElbow.y);
+      ctx.lineTo(leftHand.x, leftHand.y);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+
+      // Right arm
+      const rightExtended = fighter.limbs[1] === 'E' || fighter.limbs[1] === 'B';
+      const rightDamaged = fighter.limbs[1] === 'X' || fighter.limbs[1] === 'B';
+
+      if (rightDamaged) ctx.setLineDash([5, 5]);
+
+      const rightElbow = {
+        x: rightShoulder.x + (rightExtended ? 30 : 20),
+        y: rightShoulder.y + (rightExtended ? 10 : 30)
+      };
+      const rightHand = {
+        x: rightElbow.x + (rightExtended ? 40 : 10),
+        y: rightElbow.y + (rightExtended ? 15 : 20)
+      };
+
+      ctx.beginPath();
+      ctx.moveTo(rightShoulder.x, rightShoulder.y);
+      ctx.lineTo(rightElbow.x, rightElbow.y);
+      ctx.lineTo(rightHand.x, rightHand.y);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+
+      // Legs
+      ctx.lineWidth = 3;
+
+      const legSpread = fighter.stance === 'w' ? 50 :
+                        fighter.stance === 'z' ? 60 : 30;
+
+      const leftLegDamaged = fighter.limbs[2] === 'X' || fighter.limbs[2] === 'B';
+      const rightLegDamaged = fighter.limbs[3] === 'X' || fighter.limbs[3] === 'B';
+
+      // Left leg
+      if (leftLegDamaged) ctx.setLineDash([5, 5]);
+
+      const leftKnee = {x: hips.x - legSpread/2, y: hips.y + 50};
+      const leftFoot = {x: leftKnee.x - 5, y: baseY};
+
+      ctx.beginPath();
+      ctx.moveTo(hips.x, hips.y);
+      ctx.lineTo(leftKnee.x, leftKnee.y);
+      ctx.lineTo(leftFoot.x, leftFoot.y);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+
+      // Right leg
+      if (rightLegDamaged) ctx.setLineDash([5, 5]);
+
+      const rightKnee = {x: hips.x + legSpread/2, y: hips.y + 50};
+      const rightFoot = {x: rightKnee.x + 5, y: baseY};
+
+      ctx.beginPath();
+      ctx.moveTo(hips.x, hips.y);
+      ctx.lineTo(rightKnee.x, rightKnee.y);
+      ctx.lineTo(rightFoot.x, rightFoot.y);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+
+      // Labels
+      ctx.font = '12px monospace';
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.fillText(`${getStanceName(fighter.stance)}`, centerX, baseY - height - 25);
+      ctx.font = '10px monospace';
+      ctx.fillText(`Bal:${Math.round(fighter.balance*100)}% Fat:${Math.round(fighter.fatigue*100)}% Dmg:${Math.round(fighter.damage*100)}%`,
+                   centerX, baseY - height - 10);
+    }
+
+    function renderFPN() {
+      const fpnInput = document.getElementById('fpn').value.trim();
+      if (!fpnInput) {
+        alert('Please enter an FPN string');
+        return;
+      }
+
+      try {
+        const state = parseFPN(fpnInput);
+
+        // Clear canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Background
+        ctx.fillStyle = '#f5f5f5';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Ground line
+        ctx.strokeStyle = '#999';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, canvas.height * 0.7);
+        ctx.lineTo(canvas.width, canvas.height * 0.7);
+        ctx.stroke();
+
+        // Distance indicator
+        const distY = canvas.height * 0.15;
+        ctx.strokeStyle = '#666';
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(canvas.width * 0.25, distY);
+        ctx.lineTo(canvas.width * 0.75, distY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.font = '14px Arial';
+        ctx.fillStyle = '#666';
+        ctx.textAlign = 'center';
+        ctx.fillText(getDistanceName(state.distance), canvas.width / 2, distY - 5);
+
+        // Draw fighters
+        drawStickFigure(state.fighterA, canvas.width * 0.25, true);
+        drawStickFigure(state.fighterB, canvas.width * 0.75, false);
+
+        // Turn and move info
+        ctx.font = '14px Arial';
+        ctx.fillStyle = '#333';
+        ctx.textAlign = 'center';
+        const turnText = state.turn === 'A' ? "Fighter A's turn" : "Fighter B's turn";
+        ctx.fillText(`Move #${state.moveCount} - ${turnText}`, canvas.width / 2, canvas.height - 20);
+
+        // FPN string at bottom
+        ctx.font = '8px monospace';
+        ctx.fillStyle = '#999';
+        ctx.fillText(fpnInput, canvas.width / 2, canvas.height - 5);
+
+      } catch (e) {
+        alert('Error parsing FPN: ' + e.message);
+      }
+    }
+
+    // Load first example on page load
+    window.onload = () => loadExample(1);
+  </script>
+</body>
+</html>
