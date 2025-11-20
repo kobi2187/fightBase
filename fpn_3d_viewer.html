@@ -153,7 +153,7 @@
         <span>Lean Forward/Back</span>
         <span class="slider-value" id="val-lean-fb">0 cm</span>
       </div>
-      <input type="range" id="lean-fb" min="-20" max="20" value="0" step="1" oninput="updatePose()">
+      <input type="range" id="lean-fb" min="-50" max="50" value="0" step="1" oninput="updatePose()">
     </div>
 
     <div class="slider-group">
@@ -161,7 +161,7 @@
         <span>Lean Left/Right</span>
         <span class="slider-value" id="val-lean-lr">0 cm</span>
       </div>
-      <input type="range" id="lean-lr" min="-15" max="15" value="0" step="1" oninput="updatePose()">
+      <input type="range" id="lean-lr" min="-40" max="40" value="0" step="1" oninput="updatePose()">
     </div>
 
     <h3>Torso Rotation</h3>
@@ -658,18 +658,30 @@
     }
 
     function poseMannequin(mannequin, pose) {
-      // Lean
-      mannequin.rotation.z = pose.leanForwardBack * 0.01 * 0.1;
-      mannequin.rotation.x = pose.leanLeftRight * 0.01 * 0.1;
-
-      // Body rotations
+      // Separate upper/lower body lean for more realistic posture
+      // Lower body (hips) gets 30% of lean, upper body (torso) gets 70%
       const hips = mannequin.getObjectByName('hips');
       const torso = mannequin.getObjectByName('torso');
       const neck = mannequin.getObjectByName('neck');
       const head = mannequin.getObjectByName('head');
 
-      if (hips) hips.rotation.y = THREE.MathUtils.degToRad(pose.hipRotation);
-      if (torso) torso.rotation.y = THREE.MathUtils.degToRad(pose.torsoRotation);
+      const leanFBRad = pose.leanForwardBack * 0.01 * 0.15; // Increased multiplier for higher range
+      const leanLRRad = pose.leanLeftRight * 0.01 * 0.15;
+
+      // Apply 30% lean to hips (lower body)
+      if (hips) {
+        hips.rotation.z = leanFBRad * 0.3;
+        hips.rotation.x = leanLRRad * 0.3;
+        hips.rotation.y = THREE.MathUtils.degToRad(pose.hipRotation);
+      }
+
+      // Apply 70% lean to torso (upper body) - this creates natural bend at waist
+      if (torso) {
+        torso.rotation.z = leanFBRad * 0.7;
+        torso.rotation.x = leanLRRad * 0.7;
+        torso.rotation.y = THREE.MathUtils.degToRad(pose.torsoRotation);
+      }
+
       if (neck) neck.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
       if (head) head.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
 
@@ -687,12 +699,12 @@
         rShoulder.rotation.z = THREE.MathUtils.degToRad(-pose.rightShoulderRoll);
       }
 
-      // Elbows
+      // Elbows (negative because elbow bends bring forearm UP/back, not down)
       const lElbow = mannequin.getObjectByName('leftElbow');
       const rElbow = mannequin.getObjectByName('rightElbow');
 
-      if (lElbow) lElbow.rotation.x = THREE.MathUtils.degToRad(pose.leftElbowBend);
-      if (rElbow) rElbow.rotation.x = THREE.MathUtils.degToRad(pose.rightElbowBend);
+      if (lElbow) lElbow.rotation.x = THREE.MathUtils.degToRad(-pose.leftElbowBend);
+      if (rElbow) rElbow.rotation.x = THREE.MathUtils.degToRad(-pose.rightElbowBend);
 
       // Hips
       const lHip = mannequin.getObjectByName('leftHip');
@@ -708,12 +720,12 @@
         rHip.rotation.z = THREE.MathUtils.degToRad(-pose.rightHipRoll);
       }
 
-      // Knees
+      // Knees (negative because knee bends bring lower leg BACK, not forward)
       const lKnee = mannequin.getObjectByName('leftKnee');
       const rKnee = mannequin.getObjectByName('rightKnee');
 
-      if (lKnee) lKnee.rotation.x = THREE.MathUtils.degToRad(pose.leftKneeBend);
-      if (rKnee) rKnee.rotation.x = THREE.MathUtils.degToRad(pose.rightKneeBend);
+      if (lKnee) lKnee.rotation.x = THREE.MathUtils.degToRad(-pose.leftKneeBend);
+      if (rKnee) rKnee.rotation.x = THREE.MathUtils.degToRad(-pose.rightKneeBend);
 
       // Stance width
       const leftLeg = mannequin.getObjectByName('leftLeg');
@@ -742,8 +754,8 @@
 
     function randomPose() {
       const pose = {
-        leanForwardBack: Math.floor((Math.random() - 0.5) * 30),
-        leanLeftRight: Math.floor((Math.random() - 0.5) * 20),
+        leanForwardBack: Math.floor((Math.random() - 0.5) * 80), // Increased from 30
+        leanLeftRight: Math.floor((Math.random() - 0.5) * 60), // Increased from 20
         hipRotation: Math.floor((Math.random() - 0.5) * 60),
         torsoRotation: Math.floor((Math.random() - 0.5) * 60),
         neckRotation: Math.floor((Math.random() - 0.5) * 80),
