@@ -244,7 +244,7 @@
         <span>Left Hip Pitch (kick forward/back)</span>
         <span class="slider-value" id="val-l-hip-p">0°</span>
       </div>
-      <input type="range" id="l-hip-p" min="-30" max="120" value="0" step="5" oninput="updatePose()">
+      <input type="range" id="l-hip-p" min="-30" max="200" value="0" step="5" oninput="updatePose()">
     </div>
 
     <div class="slider-group">
@@ -268,7 +268,7 @@
         <span>Right Hip Pitch (kick forward/back)</span>
         <span class="slider-value" id="val-r-hip-p">0°</span>
       </div>
-      <input type="range" id="r-hip-p" min="-30" max="120" value="0" step="5" oninput="updatePose()">
+      <input type="range" id="r-hip-p" min="-30" max="200" value="0" step="5" oninput="updatePose()">
     </div>
 
     <div class="slider-group">
@@ -318,6 +318,7 @@
     <button class="example-btn" onclick="loadPreset('jab')">Jab</button>
     <button class="example-btn" onclick="loadPreset('guard')">Guard Position</button>
     <button class="example-btn" onclick="loadPreset('kick')">Front Kick</button>
+    <button class="example-btn" onclick="loadPreset('highkick')">High Kick to Head</button>
 
     <div class="info">
       <strong>MPN Output:</strong>
@@ -691,12 +692,12 @@
 
       if (lShoulder) {
         lShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.leftShoulderPitch);
-        lShoulder.rotation.z = THREE.MathUtils.degToRad(pose.leftShoulderRoll);
+        lShoulder.rotation.z = THREE.MathUtils.degToRad(-pose.leftShoulderRoll); // Negative = arm goes outward
       }
 
       if (rShoulder) {
         rShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.rightShoulderPitch);
-        rShoulder.rotation.z = THREE.MathUtils.degToRad(-pose.rightShoulderRoll);
+        rShoulder.rotation.z = THREE.MathUtils.degToRad(pose.rightShoulderRoll); // Positive = arm goes outward
       }
 
       // Elbows (negative because elbow bends bring forearm UP/back, not down)
@@ -720,12 +721,12 @@
         rHip.rotation.z = THREE.MathUtils.degToRad(-pose.rightHipRoll);
       }
 
-      // Knees (negative because knee bends bring lower leg BACK, not forward)
+      // Knees (positive rotation bends leg forward/up for kicks)
       const lKnee = mannequin.getObjectByName('leftKnee');
       const rKnee = mannequin.getObjectByName('rightKnee');
 
-      if (lKnee) lKnee.rotation.x = THREE.MathUtils.degToRad(-pose.leftKneeBend);
-      if (rKnee) rKnee.rotation.x = THREE.MathUtils.degToRad(-pose.rightKneeBend);
+      if (lKnee) lKnee.rotation.x = THREE.MathUtils.degToRad(pose.leftKneeBend);
+      if (rKnee) rKnee.rotation.x = THREE.MathUtils.degToRad(pose.rightKneeBend);
 
       // Stance width
       const leftLeg = mannequin.getObjectByName('leftLeg');
@@ -765,9 +766,9 @@
         rightShoulderRoll: Math.floor(Math.random() * 120),
         leftElbowBend: Math.floor(Math.random() * 140),
         rightElbowBend: Math.floor(Math.random() * 140),
-        leftHipPitch: Math.floor(-20 + Math.random() * 100),
+        leftHipPitch: Math.floor(-30 + Math.random() * 230), // -30 to 200 for high kicks
         leftHipRoll: Math.floor((Math.random() - 0.5) * 60),
-        rightHipPitch: Math.floor(-20 + Math.random() * 100),
+        rightHipPitch: Math.floor(-30 + Math.random() * 230), // -30 to 200 for high kicks
         rightHipRoll: Math.floor((Math.random() - 0.5) * 60),
         leftKneeBend: Math.floor(Math.random() * 120),
         rightKneeBend: Math.floor(Math.random() * 120),
@@ -822,6 +823,19 @@
             rightKneeBend: 30,
             leftKneeBend: 25,
             stanceWidth: 25
+          };
+          break;
+        case 'highkick':
+          pose = {
+            ...createNeutralPose(),
+            leanForwardBack: -25, // Lean torso backward
+            hipRotation: 20, // Pelvis rotates forward
+            torsoRotation: -15, // Torso counters
+            rightHipPitch: 170, // High kick to head level
+            rightKneeBend: 15, // Nearly extended leg
+            leftKneeBend: 20, // Standing leg slightly bent
+            leftHipPitch: -10, // Standing leg stable
+            stanceWidth: 30
           };
           break;
       }
