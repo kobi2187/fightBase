@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>FPN 3D Mannequin Viewer</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+      background: #2a2a2a;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(255,255,255,0.95);
+      padding: 20px;
+      border-radius: 8px;
+      max-width: 350px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      z-index: 100;
+    }
+    #info {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: monospace;
+    }
+    h2 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+    }
+    textarea {
+      width: 100%;
+      height: 60px;
+      font-family: monospace;
+      font-size: 11px;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      resize: vertical;
+    }
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      font-size: 13px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 8px;
+      margin-right: 5px;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    .example-btn {
+      background: #2196F3;
+      font-size: 11px;
+      padding: 5px 10px;
+    }
+    .example-btn:hover {
+      background: #0b7dda;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 5px;
+      font-size: 13px;
+    }
+    .stats {
+      font-size: 11px;
+      margin-top: 10px;
+      padding: 8px;
+      background: #f5f5f5;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <h2>🥊 3D Mannequin Viewer</h2>
+    <label>FPN String:</label>
+    <textarea id="fpn" placeholder="o.95.15.0.3,5.10,15,55,0,0.----/s.90.20.5.-1,0.-5,-10,45,0,0.----/m/A/5"></textarea>
+
+    <div>
+      <button onclick="loadFPN()">Load Position</button>
+      <button onclick="resetCamera()">Reset View</button>
+    </div>
+
+    <div style="margin-top: 10px;">
+      <button class="example-btn" onclick="loadExample(1)">Fresh</button>
+      <button class="example-btn" onclick="loadExample(2)">Exchange</button>
+      <button class="example-btn" onclick="loadExample(3)">Close</button>
+      <button class="example-btn" onclick="loadExample(4)">Damaged</button>
+    </div>
+
+    <div class="stats" id="stats"></div>
+  </div>
+
+  <div id="info">
+    Controls: Mouse drag = rotate | Scroll = zoom | Right drag = pan
+  </div>
+
+  <div id="canvas-container"></div>
+
+  <!-- Three.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    // Scene setup
+    let scene, camera, renderer, controls;
+    let fighterA, fighterB;
+    let groundPlane;
+
+    const examples = {
+      1: "o.100.0.0.0,0.0,0,50,0,0.----/s.100.0.0.0,0.0,0,50,0,0.----/m/A/0",
+      2: "o.85.25.5.2,10.15,20,55,0,0.--E-/s.80.30.8.-1,5.-10,-15,45,0,0.-E--/s/B/5",
+      3: "o.70.40.12.3,15.25,30,60,0,0.----/s.65.45.15.1,8.-15,-25,40,1,2.----/c/A/8",
+      4: "o.90.20.2.1,5.10,15,55,0,0.----/s.50.35.35.-2,0.-20,-30,35,1,4.X-E-/s/A/12"
+    };
+
+    function init() {
+      // Scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x2a2a2a);
+      scene.fog = new THREE.Fog(0x2a2a2a, 10, 50);
+
+      // Camera
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 3, 8);
+      camera.lookAt(0, 2, 0);
+
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+      // Lights
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambientLight);
+
+      const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      mainLight.position.set(5, 10, 5);
+      mainLight.castShadow = true;
+      mainLight.shadow.camera.left = -10;
+      mainLight.shadow.camera.right = 10;
+      mainLight.shadow.camera.top = 10;
+      mainLight.shadow.camera.bottom = -10;
+      scene.add(mainLight);
+
+      const fillLight = new THREE.DirectionalLight(0x8888ff, 0.3);
+      fillLight.position.set(-5, 5, -5);
+      scene.add(fillLight);
+
+      // Ground
+      const groundGeometry = new THREE.PlaneGeometry(20, 20);
+      const groundMaterial = new THREE.MeshStandardMaterial({
+        color: 0x444444,
+        roughness: 0.8,
+        metalness: 0.2
+      });
+      groundPlane = new THREE.Mesh(groundGeometry, groundMaterial);
+      groundPlane.rotation.x = -Math.PI / 2;
+      groundPlane.receiveShadow = true;
+      scene.add(groundPlane);
+
+      // Grid
+      const gridHelper = new THREE.GridHelper(20, 20, 0x666666, 0x333333);
+      scene.add(gridHelper);
+
+      // Mouse controls (simplified orbit)
+      setupMouseControls();
+
+      // Create mannequins
+      fighterA = createMannequin(0xff4444); // Red
+      fighterB = createMannequin(0x4444ff); // Blue
+
+      fighterA.position.set(-3, 0, 0);
+      fighterB.position.set(3, 0, 0);
+
+      scene.add(fighterA);
+      scene.add(fighterB);
+
+      // Load first example
+      loadExample(1);
+
+      // Render loop
+      animate();
+
+      // Handle window resize
+      window.addEventListener('resize', onWindowResize);
+    }
+
+    function createMannequin(color) {
+      const mannequin = new THREE.Group();
+
+      const material = new THREE.MeshStandardMaterial({
+        color: color,
+        roughness: 0.5,
+        metalness: 0.3
+      });
+
+      const damagedMaterial = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(color).multiplyScalar(0.5),
+        roughness: 0.8,
+        metalness: 0.1,
+        transparent: true,
+        opacity: 0.6
+      });
+
+      // Body parts (simplified mannequin)
+      // Head
+      const headGeo = new THREE.SphereGeometry(0.2, 16, 16);
+      const head = new THREE.Mesh(headGeo, material);
+      head.position.y = 3.6;
+      head.castShadow = true;
+      head.name = 'head';
+      mannequin.add(head);
+
+      // Neck
+      const neckGeo = new THREE.CylinderGeometry(0.08, 0.1, 0.15, 8);
+      const neck = new THREE.Mesh(neckGeo, material);
+      neck.position.y = 3.4;
+      neck.castShadow = true;
+      mannequin.add(neck);
+
+      // Torso
+      const torsoGeo = new THREE.BoxGeometry(0.5, 0.8, 0.3);
+      const torso = new THREE.Mesh(torsoGeo, material);
+      torso.position.y = 2.9;
+      torso.castShadow = true;
+      torso.name = 'torso';
+      mannequin.add(torso);
+
+      // Hips
+      const hipsGeo = new THREE.BoxGeometry(0.45, 0.3, 0.3);
+      const hips = new THREE.Mesh(hipsGeo, material);
+      hips.position.y = 2.35;
+      hips.castShadow = true;
+      hips.name = 'hips';
+      mannequin.add(hips);
+
+      // Arms (simplified as cylinders)
+      function createArm(side) {
+        const armGroup = new THREE.Group();
+
+        // Upper arm
+        const upperArmGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.4, 8);
+        const upperArm = new THREE.Mesh(upperArmGeo, material);
+        upperArm.position.y = 3.0;
+        upperArm.position.x = side * 0.35;
+        upperArm.castShadow = true;
+
+        // Lower arm
+        const lowerArmGeo = new THREE.CylinderGeometry(0.05, 0.04, 0.4, 8);
+        const lowerArm = new THREE.Mesh(lowerArmGeo, material);
+        lowerArm.position.y = 2.6;
+        lowerArm.position.x = side * 0.35;
+        lowerArm.castShadow = true;
+
+        // Hand
+        const handGeo = new THREE.SphereGeometry(0.07, 8, 8);
+        const hand = new THREE.Mesh(handGeo, material);
+        hand.position.y = 2.4;
+        hand.position.x = side * 0.35;
+        hand.castShadow = true;
+
+        armGroup.add(upperArm);
+        armGroup.add(lowerArm);
+        armGroup.add(hand);
+        armGroup.name = side > 0 ? 'rightArm' : 'leftArm';
+
+        return armGroup;
+      }
+
+      mannequin.add(createArm(-1)); // Left
+      mannequin.add(createArm(1));  // Right
+
+      // Legs
+      function createLeg(side) {
+        const legGroup = new THREE.Group();
+
+        // Upper leg
+        const upperLegGeo = new THREE.CylinderGeometry(0.08, 0.07, 0.6, 8);
+        const upperLeg = new THREE.Mesh(upperLegGeo, material);
+        upperLeg.position.y = 1.85;
+        upperLeg.position.x = side * 0.15;
+        upperLeg.castShadow = true;
+
+        // Lower leg
+        const lowerLegGeo = new THREE.CylinderGeometry(0.06, 0.05, 0.6, 8);
+        const lowerLeg = new THREE.Mesh(lowerLegGeo, material);
+        lowerLeg.position.y = 1.25;
+        lowerLeg.position.x = side * 0.15;
+        lowerLeg.castShadow = true;
+
+        // Foot
+        const footGeo = new THREE.BoxGeometry(0.12, 0.1, 0.25);
+        const foot = new THREE.Mesh(footGeo, material);
+        foot.position.y = 0.05;
+        foot.position.x = side * 0.15;
+        foot.position.z = 0.08;
+        foot.castShadow = true;
+
+        legGroup.add(upperLeg);
+        legGroup.add(lowerLeg);
+        legGroup.add(foot);
+        legGroup.name = side > 0 ? 'rightLeg' : 'leftLeg';
+
+        return legGroup;
+      }
+
+      mannequin.add(createLeg(-1)); // Left
+      mannequin.add(createLeg(1));  // Right
+
+      return mannequin;
+    }
+
+    function parseFPN(fpn) {
+      const parts = fpn.trim().split('/');
+      if (parts.length !== 5) throw new Error('Invalid FPN format');
+
+      return {
+        fighterA: parseFighter(parts[0]),
+        fighterB: parseFighter(parts[1]),
+        distance: parts[2],
+        turn: parts[3],
+        moveCount: parseInt(parts[4])
+      };
+    }
+
+    function parseFighter(fpnFighter) {
+      const parts = fpnFighter.split('.');
+      const mom = parts[4].split(',');
+      const bio = parts[5].split(',');
+
+      return {
+        stance: parts[0],
+        balance: parseInt(parts[1]) / 100,
+        fatigue: parseInt(parts[2]) / 100,
+        damage: parseInt(parts[3]) / 100,
+        momentum: {
+          linear: parseInt(mom[0]) / 10,
+          rotational: parseInt(mom[1])
+        },
+        biomech: {
+          hipRot: parseInt(bio[0]),
+          torsoRot: parseInt(bio[1]),
+          weight: parseInt(bio[2]) / 100,
+          recovering: bio[3] === '1',
+          frames: parseInt(bio[4])
+        },
+        limbs: parts[6]
+      };
+    }
+
+    function poseMannequin(mannequin, fighter) {
+      // Apply balance (lean)
+      const lean = (1 - fighter.balance) * 0.2;
+      mannequin.rotation.z = lean;
+
+      // Apply hip rotation
+      const hips = mannequin.getObjectByName('hips');
+      if (hips) {
+        hips.rotation.y = THREE.MathUtils.degToRad(fighter.biomech.hipRot);
+      }
+
+      // Apply torso rotation
+      const torso = mannequin.getObjectByName('torso');
+      if (torso) {
+        torso.rotation.y = THREE.MathUtils.degToRad(fighter.biomech.torsoRot);
+      }
+
+      // Pose arms based on extended state
+      const leftArm = mannequin.getObjectByName('leftArm');
+      const rightArm = mannequin.getObjectByName('rightArm');
+
+      if (leftArm) {
+        const extended = fighter.limbs[0] === 'E' || fighter.limbs[0] === 'B';
+        leftArm.rotation.z = extended ? Math.PI / 3 : Math.PI / 6;
+      }
+
+      if (rightArm) {
+        const extended = fighter.limbs[1] === 'E' || fighter.limbs[1] === 'B';
+        rightArm.rotation.z = extended ? -Math.PI / 3 : -Math.PI / 6;
+      }
+
+      // Update material based on damage
+      const color = mannequin === fighterA ? 0xff4444 : 0x4444ff;
+      const damageFactor = 1 - (fighter.damage * 0.5);
+
+      mannequin.traverse((child) => {
+        if (child.isMesh) {
+          child.material.color.setHex(color);
+          child.material.color.multiplyScalar(damageFactor);
+
+          if (fighter.damage > 0.5) {
+            child.material.opacity = 0.7;
+            child.material.transparent = true;
+          }
+        }
+      });
+    }
+
+    function loadFPN() {
+      const fpnInput = document.getElementById('fpn').value.trim();
+      if (!fpnInput) {
+        alert('Please enter an FPN string');
+        return;
+      }
+
+      try {
+        const state = parseFPN(fpnInput);
+
+        // Position fighters based on distance
+        const distanceMap = { 'c': 1.5, 's': 2.5, 'm': 4, 'l': 6, 'v': 8 };
+        const dist = distanceMap[state.distance] || 4;
+
+        fighterA.position.x = -dist / 2;
+        fighterB.position.x = dist / 2;
+
+        fighterA.rotation.y = Math.PI / 2;
+        fighterB.rotation.y = -Math.PI / 2;
+
+        // Pose mannequins
+        poseMannequin(fighterA, state.fighterA);
+        poseMannequin(fighterB, state.fighterB);
+
+        // Update stats
+        updateStats(state);
+
+      } catch (e) {
+        alert('Error parsing FPN: ' + e.message);
+      }
+    }
+
+    function updateStats(state) {
+      const statsDiv = document.getElementById('stats');
+      statsDiv.innerHTML = `
+        <strong>Fighter A:</strong> Bal:${Math.round(state.fighterA.balance*100)}% Fat:${Math.round(state.fighterA.fatigue*100)}% Dmg:${Math.round(state.fighterA.damage*100)}%<br>
+        <strong>Fighter B:</strong> Bal:${Math.round(state.fighterB.balance*100)}% Fat:${Math.round(state.fighterB.fatigue*100)}% Dmg:${Math.round(state.fighterB.damage*100)}%<br>
+        <strong>Distance:</strong> ${state.distance} | <strong>Move:</strong> #${state.moveCount}
+      `;
+    }
+
+    function loadExample(num) {
+      document.getElementById('fpn').value = examples[num];
+      loadFPN();
+    }
+
+    function resetCamera() {
+      camera.position.set(0, 3, 8);
+      camera.lookAt(0, 2, 0);
+    }
+
+    // Simplified mouse controls
+    let mouseDown = false;
+    let mouseX = 0;
+    let mouseY = 0;
+    let cameraAngle = 0;
+    let cameraHeight = 3;
+    let cameraDistance = 8;
+
+    function setupMouseControls() {
+      renderer.domElement.addEventListener('mousedown', (e) => {
+        mouseDown = true;
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+      });
+
+      renderer.domElement.addEventListener('mouseup', () => {
+        mouseDown = false;
+      });
+
+      renderer.domElement.addEventListener('mousemove', (e) => {
+        if (!mouseDown) return;
+
+        const deltaX = e.clientX - mouseX;
+        const deltaY = e.clientY - mouseY;
+
+        cameraAngle += deltaX * 0.01;
+        cameraHeight = Math.max(0.5, Math.min(6, cameraHeight - deltaY * 0.01));
+
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+
+        updateCamera();
+      });
+
+      renderer.domElement.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        cameraDistance = Math.max(2, Math.min(15, cameraDistance + e.deltaY * 0.01));
+        updateCamera();
+      });
+    }
+
+    function updateCamera() {
+      camera.position.x = Math.sin(cameraAngle) * cameraDistance;
+      camera.position.z = Math.cos(cameraAngle) * cameraDistance;
+      camera.position.y = cameraHeight;
+      camera.lookAt(0, 2, 0);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // Initialize
+    init();
+  </script>
+</body>
+</html>
