@@ -355,8 +355,10 @@
         rightElbowBend: 90,
         leftHipPitch: 0,
         leftHipRoll: 0,
+        leftHipYaw: 0,
         rightHipPitch: 0,
         rightHipRoll: 0,
+        rightHipYaw: 0,
         leftKneeBend: 15,
         rightKneeBend: 15,
         stanceWidth: 40
@@ -608,8 +610,10 @@
         rightElbowBend: parseFloat(document.getElementById('r-elbow').value),
         leftHipPitch: parseFloat(document.getElementById('l-hip-p').value),
         leftHipRoll: parseFloat(document.getElementById('l-hip-r').value),
+        leftHipYaw: 0,  // No UI control yet, default to 0
         rightHipPitch: parseFloat(document.getElementById('r-hip-p').value),
         rightHipRoll: parseFloat(document.getElementById('r-hip-r').value),
+        rightHipYaw: 0,  // No UI control yet, default to 0
         leftKneeBend: parseFloat(document.getElementById('l-knee').value),
         rightKneeBend: parseFloat(document.getElementById('r-knee').value),
         stanceWidth: parseFloat(document.getElementById('stance').value)
@@ -670,7 +674,7 @@
     }
 
     function poseToMPN(pose) {
-      return `${pose.leanForwardBack},${pose.leanLeftRight}.${pose.hipRotation},${pose.torsoRotation},${pose.neckRotation}.${pose.leftShoulderPitch},${pose.leftShoulderRoll},${pose.rightShoulderPitch},${pose.rightShoulderRoll}.${pose.leftElbowBend},${pose.rightElbowBend}.${pose.leftHipPitch},${pose.leftHipRoll},${pose.rightHipPitch},${pose.rightHipRoll}.${pose.leftKneeBend},${pose.rightKneeBend}.${pose.stanceWidth},90`;
+      return `${pose.leanForwardBack},${pose.leanLeftRight}.${pose.hipRotation},${pose.torsoRotation},${pose.neckRotation}.${pose.leftShoulderPitch},${pose.leftShoulderRoll},${pose.rightShoulderPitch},${pose.rightShoulderRoll}.${pose.leftElbowBend},${pose.rightElbowBend}.${pose.leftHipPitch},${pose.leftHipRoll},${pose.leftHipYaw},${pose.rightHipPitch},${pose.rightHipRoll},${pose.rightHipYaw}.${pose.leftKneeBend},${pose.rightKneeBend}.${pose.stanceWidth},90`;
     }
 
     function resetMannequinPose(mannequin) {
@@ -801,8 +805,8 @@
         const leftAbduction = isLeftKicking ? pose.leftHipRoll : legBio.hipAbduction;
         lHip.rotation.z = THREE.MathUtils.degToRad(-leftAbduction);  // Negative = outward
 
-        // Y-axis rotation: leg rotation (for round kicks)
-        lHip.rotation.y = 0;  // Can add pose.leftHipRotation if needed
+        // Y-axis yaw: leg rotation inward/outward (CRITICAL for round kicks!)
+        lHip.rotation.y = THREE.MathUtils.degToRad(pose.leftHipYaw);
       }
 
       if (rHip) {
@@ -811,7 +815,8 @@
         const rightAbduction = isRightKicking ? pose.rightHipRoll : legBio.hipAbduction;
         rHip.rotation.z = THREE.MathUtils.degToRad(rightAbduction);  // Positive = outward
 
-        rHip.rotation.y = 0;  // Can add pose.rightHipRotation if needed
+        // Y-axis yaw: leg rotation inward/outward (CRITICAL for round kicks!)
+        rHip.rotation.y = THREE.MathUtils.degToRad(pose.rightHipYaw);
       }
 
       // Apply knee bend - use biomechanically calculated bend unless overridden
@@ -920,9 +925,11 @@
           pose = {
             ...createNeutralPose(),
             leanForwardBack: -25, // Lean torso backward
-            hipRotation: 20, // Pelvis rotates forward
-            torsoRotation: -15, // Torso counters
+            hipRotation: 60, // Heavy hip rotation for round kick
+            torsoRotation: 30, // Torso counters
             rightHipPitch: 170, // High kick to head level
+            rightHipRoll: 45, // Leg abducted to side
+            rightHipYaw: -60, // Leg rotates inward - ROUND KICK!
             rightKneeBend: 15, // Nearly extended leg
             leftKneeBend: 20, // Standing leg slightly bent
             leftHipPitch: -10, // Standing leg stable
