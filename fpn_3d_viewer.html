@@ -208,6 +208,14 @@
 
     <div class="slider-group">
       <div class="slider-label">
+        <span>Left Shoulder Yaw (internal/external rotation)</span>
+        <span class="slider-value" id="val-l-shoulder-y">0°</span>
+      </div>
+      <input type="range" id="l-shoulder-y" min="-90" max="90" value="0" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
         <span>Left Elbow Bend</span>
         <span class="slider-value" id="val-l-elbow">90°</span>
       </div>
@@ -228,6 +236,14 @@
         <span class="slider-value" id="val-r-shoulder-r">0°</span>
       </div>
       <input type="range" id="r-shoulder-r" min="0" max="180" value="0" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Right Shoulder Yaw (internal/external rotation)</span>
+        <span class="slider-value" id="val-r-shoulder-y">45°</span>
+      </div>
+      <input type="range" id="r-shoulder-y" min="-90" max="90" value="45" step="5" oninput="updatePose()">
     </div>
 
     <div class="slider-group">
@@ -257,6 +273,14 @@
 
     <div class="slider-group">
       <div class="slider-label">
+        <span>Left Hip Yaw (leg rotation inward/outward)</span>
+        <span class="slider-value" id="val-l-hip-y">0°</span>
+      </div>
+      <input type="range" id="l-hip-y" min="-90" max="90" value="0" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
         <span>Left Knee Bend</span>
         <span class="slider-value" id="val-l-knee">15°</span>
       </div>
@@ -277,6 +301,14 @@
         <span class="slider-value" id="val-r-hip-r">0°</span>
       </div>
       <input type="range" id="r-hip-r" min="-45" max="45" value="0" step="5" oninput="updatePose()">
+    </div>
+
+    <div class="slider-group">
+      <div class="slider-label">
+        <span>Right Hip Yaw (leg rotation inward/outward)</span>
+        <span class="slider-value" id="val-r-hip-y">0°</span>
+      </div>
+      <input type="range" id="r-hip-y" min="-90" max="90" value="0" step="5" oninput="updatePose()">
     </div>
 
     <div class="slider-group">
@@ -411,8 +443,8 @@
 
       fighterA.position.set(-2, 0, 0);
       fighterB.position.set(2, 0, 0);
-      fighterA.rotation.y = Math.PI / 2;    // Face right (+X direction, toward B)
-      fighterB.rotation.y = -Math.PI / 2;   // Face left (-X direction, toward A)
+      fighterA.rotation.y = -Math.PI / 2;   // Face right (+X direction, toward B)
+      fighterB.rotation.y = Math.PI / 2;    // Face left (-X direction, toward A)
 
       scene.add(fighterA);
       scene.add(fighterB);
@@ -584,14 +616,18 @@
       document.getElementById('neck-rot').value = pose.neckRotation;
       document.getElementById('l-shoulder-p').value = pose.leftShoulderPitch;
       document.getElementById('l-shoulder-r').value = pose.leftShoulderRoll;
+      document.getElementById('l-shoulder-y').value = pose.leftShoulderYaw;
       document.getElementById('r-shoulder-p').value = pose.rightShoulderPitch;
       document.getElementById('r-shoulder-r').value = pose.rightShoulderRoll;
+      document.getElementById('r-shoulder-y').value = pose.rightShoulderYaw;
       document.getElementById('l-elbow').value = pose.leftElbowBend;
       document.getElementById('r-elbow').value = pose.rightElbowBend;
       document.getElementById('l-hip-p').value = pose.leftHipPitch;
       document.getElementById('l-hip-r').value = pose.leftHipRoll;
+      document.getElementById('l-hip-y').value = pose.leftHipYaw;
       document.getElementById('r-hip-p').value = pose.rightHipPitch;
       document.getElementById('r-hip-r').value = pose.rightHipRoll;
+      document.getElementById('r-hip-y').value = pose.rightHipYaw;
       document.getElementById('l-knee').value = pose.leftKneeBend;
       document.getElementById('r-knee').value = pose.rightKneeBend;
       document.getElementById('stance').value = pose.stanceWidth;
@@ -599,9 +635,6 @@
     }
 
     function readPoseFromUI() {
-      // Preserve the existing pose's yaw values since there are no UI controls yet
-      const currentPose = currentFighter === 'A' ? poseA : poseB;
-
       return {
         leanForwardBack: parseFloat(document.getElementById('lean-fb').value),
         leanLeftRight: parseFloat(document.getElementById('lean-lr').value),
@@ -610,18 +643,18 @@
         neckRotation: parseFloat(document.getElementById('neck-rot').value),
         leftShoulderPitch: parseFloat(document.getElementById('l-shoulder-p').value),
         leftShoulderRoll: parseFloat(document.getElementById('l-shoulder-r').value),
-        leftShoulderYaw: currentPose.leftShoulderYaw || 0,  // Preserve existing value
+        leftShoulderYaw: parseFloat(document.getElementById('l-shoulder-y').value),
         rightShoulderPitch: parseFloat(document.getElementById('r-shoulder-p').value),
         rightShoulderRoll: parseFloat(document.getElementById('r-shoulder-r').value),
-        rightShoulderYaw: currentPose.rightShoulderYaw || 45,  // Preserve existing value (default 45 for rear guard)
+        rightShoulderYaw: parseFloat(document.getElementById('r-shoulder-y').value),
         leftElbowBend: parseFloat(document.getElementById('l-elbow').value),
         rightElbowBend: parseFloat(document.getElementById('r-elbow').value),
         leftHipPitch: parseFloat(document.getElementById('l-hip-p').value),
         leftHipRoll: parseFloat(document.getElementById('l-hip-r').value),
-        leftHipYaw: currentPose.leftHipYaw || 0,  // Preserve existing value
+        leftHipYaw: parseFloat(document.getElementById('l-hip-y').value),
         rightHipPitch: parseFloat(document.getElementById('r-hip-p').value),
         rightHipRoll: parseFloat(document.getElementById('r-hip-r').value),
-        rightHipYaw: currentPose.rightHipYaw || 0,  // Preserve existing value
+        rightHipYaw: parseFloat(document.getElementById('r-hip-y').value),
         leftKneeBend: parseFloat(document.getElementById('l-knee').value),
         rightKneeBend: parseFloat(document.getElementById('r-knee').value),
         stanceWidth: parseFloat(document.getElementById('stance').value)
@@ -645,14 +678,18 @@
       document.getElementById('val-neck-rot').textContent = pose.neckRotation + '°';
       document.getElementById('val-l-shoulder-p').textContent = pose.leftShoulderPitch + '°';
       document.getElementById('val-l-shoulder-r').textContent = pose.leftShoulderRoll + '°';
+      document.getElementById('val-l-shoulder-y').textContent = pose.leftShoulderYaw + '°';
       document.getElementById('val-r-shoulder-p').textContent = pose.rightShoulderPitch + '°';
       document.getElementById('val-r-shoulder-r').textContent = pose.rightShoulderRoll + '°';
+      document.getElementById('val-r-shoulder-y').textContent = pose.rightShoulderYaw + '°';
       document.getElementById('val-l-elbow').textContent = pose.leftElbowBend + '°';
       document.getElementById('val-r-elbow').textContent = pose.rightElbowBend + '°';
       document.getElementById('val-l-hip-p').textContent = pose.leftHipPitch + '°';
       document.getElementById('val-l-hip-r').textContent = pose.leftHipRoll + '°';
+      document.getElementById('val-l-hip-y').textContent = pose.leftHipYaw + '°';
       document.getElementById('val-r-hip-p').textContent = pose.rightHipPitch + '°';
       document.getElementById('val-r-hip-r').textContent = pose.rightHipRoll + '°';
+      document.getElementById('val-r-hip-y').textContent = pose.rightHipYaw + '°';
       document.getElementById('val-l-knee').textContent = pose.leftKneeBend + '°';
       document.getElementById('val-r-knee').textContent = pose.rightKneeBend + '°';
       document.getElementById('val-stance').textContent = pose.stanceWidth + ' cm';
