@@ -12,46 +12,74 @@ The 3D mannequins now have a **cone-shaped nose** pointing forward so you can cl
 - Same color as the mannequin (red/blue)
 - Has shadow casting for realism
 
-### 2. Biomechanically Correct Stance Width (✓)
+### 2. Mannequins Face Each Other (✓)
+- Fighter A (red) at x=-2 faces forward (rotation.y = 0)
+- Fighter B (blue) at x=+2 faces backward (rotation.y = π)
+- They now look at each other properly
 
-Stance width is now **calculated properly** based on leg geometry:
+### 3. Biomechanically Correct Hip Mechanics (✓)
 
-#### The Physics:
-- When you spread your legs, they form triangles with your hip joints
-- Leg length is constant (thigh: 45cm + shin: 45cm = 90cm total)
-- Hip joints are 30cm apart
-- **You cannot keep legs straight when spreading them wide!**
+**Major insight:** The hip is a **ball-and-socket joint** (acetabulum + femur head) that **rotates**, not a sliding joint that repositions!
 
-#### What's Calculated:
-1. **Knee Bend**: Automatically calculated from stance width
-   - Narrow stance (25cm): ~15° bend
-   - Normal stance (40cm): ~17° bend
-   - Wide stance (60cm): ~23° bend
-   - Wrestling stance (70cm): ~27° base + 20° extra = ~47° total
+#### Hip Joint Anatomy:
+- **Ball-and-socket joint** at the pelvis (femur head in acetabulum)
+- Hip socket position is **FIXED** at ±15cm from centerline (30cm total hip width)
+- The joint **rotates in 3D**, it doesn't slide horizontally
 
-2. **Hip Roll**: Legs angle outward from the hip
-   - Calculated from leg geometry
-   - Wider stance = more hip roll
+#### Three Types of Hip Movement:
+1. **Hip Abduction (Z-axis)**: Spreading legs sideways for stance width
+   - Rotates leg outward at the socket
+   - Used for: wide stances, horse stance, sumo squat
+2. **Hip Pitch (X-axis)**: Lifting leg forward/backward
+   - Rotates leg up/down
+   - Used for: front kicks, back kicks, knee strikes
+3. **Hip Rotation (Y-axis)**: Rotating leg inward/outward
+   - Twists the femur in the socket
+   - Used for: round kicks (leg rotates inward as it lifts)
+
+#### Stance Width Biomechanics:
+- **Input**: Desired stance width (e.g., 60cm between feet)
+- **Fixed**: Hip sockets are 30cm apart (anatomical constant)
+- **Calculate**: Hip abduction angle needed to achieve desired foot separation
+  ```
+  additional_spread = stance_width - hip_width
+  abduction_angle = arctan((additional_spread/2) / leg_length)
+  ```
+- **Result**: Hip abduction = 8° for narrow stance, 18° for wide stance
+
+#### Knee Bend Compensation:
+As hips abduct (legs spread), knees must bend more to keep feet on ground:
+- Base knee bend: 15° (even in neutral stance)
+- Additional bend: abduction_angle × 1.5
+- Wrestling stance adds extra 20° for low posture
+- Maximum: 60° (realistic squat limit)
 
 #### Implementation:
 
 **JavaScript (fpn_3d_viewer.html):**
-- `calculateLegBiomechanics(stanceWidthCm)` function (lines 692-727)
-- Calculates knee bend and hip roll based on triangle geometry
-- Integrated into `poseMannequin()` function (lines 778-820)
+- `calculateLegBiomechanics(stanceWidthCm)` - calculates abduction angle and knee bend
+- `poseMannequin()` - applies hip abduction (Z-axis) for stance, pitch/roll for kicks
+- Hip socket stays at fixed position (±15cm), only rotations change
 
 **Nim (mannequin_notation.nim):**
-- New `LegBiomechanics` type (lines 124-128)
-- `calculateLegBiomechanics(stanceWidthM)` function (lines 130-165)
-- Integrated into `fighterStateToMannequinPose()` (lines 209-247)
+- `LegBiomechanics` type with `hipAbduction`, `kneeBend`, `legAngle`
+- `calculateLegBiomechanics(stanceWidthM)` - same logic as JavaScript
+- Separates stance abduction from kick pitch/roll
 
-### 3. Key Formulas Used
+### 4. Key Formulas
 
+#### Stance Width → Hip Abduction:
 ```
-horizontal_distance = |foot_offset - hip_joint_offset|
-leg_angle = arctan(horizontal_distance / total_leg_length)
-knee_bend = base_bend + (leg_angle × 1.2)
-hip_roll = leg_angle × 0.6
+additional_spread = stance_width - 30cm
+abduction_angle = arctan((additional_spread / 2) / leg_length)
+knee_bend = 15° + (abduction_angle × 1.5)
+```
+
+#### Round Kick (example):
+```
+hip_pitch = 90° (lift leg to horizontal)
+hip_rotation = 45° (rotate leg inward)
+knee_bend = 20° (partially extended)
 ```
 
 ## Testing
