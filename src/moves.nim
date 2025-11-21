@@ -245,12 +245,15 @@ proc createJab*(side: string = "left", origin: string = "Boxing"): Move =
   result.viabilityCheck = moveViability
 
   # Set up application closure (position changes only, no overlay updates)
+  let moveCategory = result.category  # Capture copy instead of result
+  let physicsEff = result.physicsEffect  # Capture physics effect
+  let postureChg = result.postureChange  # Capture posture change
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
 
     # Calculate posture-dependent effectiveness
-    let postureMultiplier = getPostureEffectMultiplier(attacker[].posture, result.category)
+    let postureMultiplier = getPostureEffectMultiplier(attacker[].posture, moveCategory)
 
     # Extend arm temporarily (position change)
     if isLeft:
@@ -270,14 +273,14 @@ proc createJab*(side: string = "left", origin: string = "Boxing"): Move =
       retractLimb(attacker[].rightArm)
 
     # Update physics (position state) - scaled by posture
-    attacker[].momentum.linear += result.physicsEffect.linearMomentum * postureMultiplier
-    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta * postureMultiplier
-    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta * postureMultiplier
-    attacker[].biomech.weightDistribution += result.physicsEffect.weightShift * postureMultiplier
+    attacker[].momentum.linear += physicsEff.linearMomentum * postureMultiplier
+    attacker[].biomech.hipRotation += physicsEff.hipRotationDelta * postureMultiplier
+    attacker[].biomech.torsoRotation += physicsEff.torsoRotationDelta * postureMultiplier
+    attacker[].biomech.weightDistribution += physicsEff.weightShift * postureMultiplier
 
     # Apply posture change if specified (STATE TRANSITION!)
-    if result.postureChange.isSome:
-      attacker[].posture = result.postureChange.get()
+    if postureChg.isSome:
+      attacker[].posture = postureChg.get()
 
     state.sequenceLength += 1
 

@@ -2,7 +2,8 @@
 
 import fight_types
 import fight_display
-import std/[db_sqlite, strformat, times, json, hashes, base64]
+import std/[strformat, times, json, hashes, base64, options, strutils]
+import db_connector/db_sqlite
 
 type
   StateDB* = ref object
@@ -357,7 +358,7 @@ proc exportUnknownStatesToFile*(sdb: StateDB, filename: string) =
   file.writeLine("=" .repeat(80))
   file.writeLine("UNRESOLVED UNKNOWN STATES")
   file.writeLine("=" .repeat(80))
-  file.writeLine()
+  file.writeLine("")
 
   var count = 0
   for row in sdb.db.fastRows(sql"""
@@ -369,10 +370,10 @@ proc exportUnknownStatesToFile*(sdb: StateDB, filename: string) =
     count += 1
     file.writeLine(fmt"[{count}] ID: {row[0]} | Hash: {row[1][0..15]}...")
     file.writeLine(fmt"Timestamp: {row[4]} | Notes: {row[3]}")
-    file.writeLine()
+    file.writeLine("")
     file.writeLine(row[2])
-    file.writeLine()
+    file.writeLine("")
     file.writeLine("-" .repeat(80))
-    file.writeLine()
+    file.writeLine("")
 
   echo fmt"Exported {count} unknown states to {filename}"

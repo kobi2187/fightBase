@@ -7,7 +7,8 @@ import moves
 import vulnerabilities
 import constraints
 import state_storage
-import std/[db_sqlite, options, json, strformat, times, tables, hashes]
+import std/[options, json, strformat, times, tables, hashes]
+import db_connector/db_sqlite
 
 type
   Player* = enum
@@ -62,6 +63,7 @@ proc openGameTreeDB*(filename: string): GameTreeDB =
       state_hash TEXT PRIMARY KEY,
       state_json TEXT NOT NULL,
       sequence_length INTEGER,
+      move_number INTEGER,       -- Move number from start (0 = initial, 1 = after 1st move, etc)
       last_mover TEXT,           -- "Player1", "Player2", or NULL (initial)
       is_terminal INTEGER,
       terminal_reason TEXT,
@@ -106,6 +108,11 @@ proc openGameTreeDB*(filename: string): GameTreeDB =
     CREATE INDEX IF NOT EXISTS idx_leaf_states
     ON states(has_children, is_terminal, sequence_length)
     WHERE has_children = 0 AND is_terminal = 0
+  """)
+
+  result.db.exec(sql"""
+    CREATE INDEX IF NOT EXISTS idx_move_number
+    ON states(move_number, has_children, is_terminal)
   """)
 
   result.db.exec(sql"""
@@ -307,6 +314,7 @@ proc isTerminal*(
 proc insertState*(
   gtdb: GameTreeDB,
   state: FightState,
+  moveNumber: int,
   lastMover: Option[Player],
   isTerminal: bool,
   terminalReason: string,
@@ -327,13 +335,14 @@ proc insertState*(
     # New state
     gtdb.db.exec(sql"""
       INSERT INTO states (
-        state_hash, state_json, sequence_length, last_mover,
+        state_hash, state_json, sequence_length, move_number, last_mover,
         is_terminal, terminal_reason, winner, first_seen, has_children
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     """,
       state.stateHash,
       $toJson(state),
       state.sequenceLength,
+      moveNumber,
       lastMoverStr,
       (if isTerminal: 1 else: 0),
       terminalReason,
@@ -426,7 +435,7 @@ proc expandLeafStates*(gtdb: GameTreeDB, batchSize: int = 100): int =
 
   # Fetch leaf states
   let leafRows = gtdb.db.getAllRows(sql"""
-    SELECT state_hash, state_json, last_mover, sequence_length
+    SELECT state_hash, state_json, last_mover, sequence_length, move_number
     FROM states
     WHERE has_children = 0
       AND is_terminal = 0
@@ -440,6 +449,7 @@ proc expandLeafStates*(gtdb: GameTreeDB, batchSize: int = 100): int =
     let stateJson = parseJson(row[1])
     let lastMoverStr = row[2]
     let seqLen = parseInt(row[3])
+    let parentMoveNumber = parseInt(row[4])
 
     # Deserialize state
     var state = fromJson(stateJson, FightState)
@@ -457,7 +467,7 @@ proc expandLeafStates*(gtdb: GameTreeDB, batchSize: int = 100): int =
     if moves.len == 0:
       # No viable moves - terminal (trapped)
       let winner = if currentPlayer == Player1: some(Player2) else: some(Player1)
-      discard gtdb.insertState(state, lastMover, true, "no_moves", winner)
+      discard gtdb.insertState(state, parentMoveNumber, lastMover, true, "no_moves", winner)
       gtdb.db.exec(sql"UPDATE states SET has_children = 1 WHERE state_hash = ?", stateHash)
       continue
 
@@ -505,8 +515,10 @@ proc expandLeafStates*(gtdb: GameTreeDB, batchSize: int = 100): int =
       newState.stateHash = computeStateHash(newState)
 
       # Insert state
+      let childMoveNumber = parentMoveNumber + 1
       let isNew = gtdb.insertState(
         newState,
+        childMoveNumber,
         some(currentPlayer),
         isTerm,
         reason,
@@ -550,7 +562,7 @@ proc generateGameTree*(
 
   # Insert initial state
   let initialState = createInitialState()
-  discard gtdb.insertState(initialState, none(Player), false, "", none(Player))
+  discard gtdb.insertState(initialState, 0, none(Player), false, "", none(Player))
 
   echo "Starting game tree generation..."
   echo fmt"Initial state: {initialState.stateHash[0..7]}..."
