@@ -437,9 +437,9 @@
       const gridHelper = new THREE.GridHelper(20, 20, 0x666666, 0x333333);
       scene.add(gridHelper);
 
-      // Create mannequins
-      fighterA = createMannequin(0xff4444);
-      fighterB = createMannequin(0x4444ff);
+      // Create mannequins with wooden colors
+      fighterA = createMannequin(0xd2a679);  // Light wood tone
+      fighterB = createMannequin(0xa67c52);  // Darker wood tone
 
       fighterA.position.set(-2, 0, 0);
       fighterB.position.set(2, 0, 0);
@@ -463,7 +463,17 @@
 
     function createMannequin(color) {
       const mannequin = new THREE.Group();
-      const material = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.3 });
+      // Wooden mannequin appearance
+      const material = new THREE.MeshStandardMaterial({
+        color: color,
+        roughness: 0.8,  // More matte for wood
+        metalness: 0.0   // No metallic shine
+      });
+      const jointMaterial = new THREE.MeshStandardMaterial({
+        color: color,
+        roughness: 0.8,
+        metalness: 0.0
+      });
 
       // Build from ground up using forward kinematics
       // Root is at ground level (y=0)
@@ -495,6 +505,11 @@
       neckGroup.position.y = 0.475; // From torso center to neck base
       neckGroup.name = 'neck';
 
+      // Neck joint sphere (visible ball joint)
+      const neckJoint = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 12), jointMaterial);
+      neckJoint.castShadow = true;
+      neckGroup.add(neckJoint);
+
       const neckMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.15, 8), material);
       neckMesh.position.y = 0.075; // Neck mesh offset
       neckMesh.castShadow = true;
@@ -515,8 +530,8 @@
       // Nose - cone pointing forward to show orientation
       const noseMaterial = new THREE.MeshStandardMaterial({
         color: color,
-        roughness: 0.5,
-        metalness: 0.3
+        roughness: 0.8,
+        metalness: 0.0
       });
       const noseGeometry = new THREE.ConeGeometry(0.04, 0.12, 8);
       const noseMesh = new THREE.Mesh(noseGeometry, noseMaterial);
@@ -533,6 +548,11 @@
         shoulder.position.set(side * 0.3, 0.35, 0); // Relative to torso center
         shoulder.name = sideName + 'Shoulder';
 
+        // Shoulder joint sphere (visible ball joint)
+        const shoulderJoint = new THREE.Mesh(new THREE.SphereGeometry(0.08, 12, 12), jointMaterial);
+        shoulderJoint.castShadow = true;
+        shoulder.add(shoulderJoint);
+
         const upperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.4, 8), material);
         upperArm.position.y = -0.2;
         upperArm.castShadow = true;
@@ -541,6 +561,11 @@
         const elbow = new THREE.Group();
         elbow.position.y = -0.4;
         elbow.name = sideName + 'Elbow';
+
+        // Elbow joint sphere (visible ball joint)
+        const elbowJoint = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), jointMaterial);
+        elbowJoint.castShadow = true;
+        elbow.add(elbowJoint);
 
         const lowerArm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.4, 8), material);
         lowerArm.position.y = -0.2;
@@ -569,6 +594,11 @@
         hip.position.set(side * 0.15, -0.15, 0); // Relative to hips center
         hip.name = sideName + 'Hip';
 
+        // Hip joint sphere (visible ball joint)
+        const hipJoint = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 12), jointMaterial);
+        hipJoint.castShadow = true;
+        hip.add(hipJoint);
+
         const upperLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.6, 8), material);
         upperLeg.position.y = -0.3;
         upperLeg.castShadow = true;
@@ -577,6 +607,11 @@
         const knee = new THREE.Group();
         knee.position.y = -0.6;
         knee.name = sideName + 'Knee';
+
+        // Knee joint sphere (visible ball joint)
+        const kneeJoint = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), jointMaterial);
+        kneeJoint.castShadow = true;
+        knee.add(kneeJoint);
 
         const lowerLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.6, 8), material);
         lowerLeg.position.y = -0.3;
