@@ -173,21 +173,42 @@ proc calculateLegBiomechanics(stanceWidthM: float): LegBiomechanics =
 
 proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
   ## Convert FightState fighter to mannequin pose
-  ## This derives the physical pose from game state
+  ## This derives the physical pose from game state + posture level
 
   result = MannequinPose()
 
-  # Lean from balance and momentum
+  # Base lean from balance and momentum
   let balanceOffset = (1.0 - fighter.pos.balance) * 10.0  # cm
   let momentumOffset = fighter.momentum.linear * 2.0      # cm
   result.leanForwardBack = momentumOffset + balanceOffset
 
+  # Modify lean based on posture
+  case fighter.posture:
+  of plStanding:
+    # Normal lean
+    discard
+  of plCrouched:
+    # Lower, more forward lean
+    result.leanForwardBack += 15.0  # Additional forward lean
+  of plGrounded:
+    # Very low, almost horizontal
+    result.leanForwardBack += 50.0  # Heavy forward (horizontal)
+  of plJumping:
+    # Airborne - less forward lean, more upright
+    result.leanForwardBack -= 10.0
+  of plSpinning:
+    # Mid-rotation - variable lean
+    result.leanForwardBack += 5.0
+
   # Lean left/right from weight distribution
   result.leanLeftRight = (fighter.biomech.weightDistribution - 0.5) * 8.0  # cm
 
-  # Rotation from biomech
+  # Rotation from biomech (amplified by spinning)
   result.hipRotation = fighter.biomech.hipRotation
   result.torsoRotation = fighter.biomech.torsoRotation
+  if fighter.posture == plSpinning:
+    result.hipRotation *= 1.5  # More rotation during spin
+    result.torsoRotation *= 1.3
   result.neckRotation = 0.0  # Not tracked in current FightState
 
   # Shoulders - derive from extended state and stance
@@ -264,6 +285,28 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
   if fighter.pos.stance == skWrestling:
     result.leftKneeBend += 20.0   # Extra deep bend
     result.rightKneeBend += 20.0
+
+  # Adjust knee bend based on posture
+  case fighter.posture:
+  of plStanding:
+    # Normal bend (already set)
+    discard
+  of plCrouched:
+    # Deep bend
+    result.leftKneeBend += 30.0
+    result.rightKneeBend += 30.0
+  of plGrounded:
+    # Fully bent or legs extended
+    result.leftKneeBend = 90.0
+    result.rightKneeBend = 90.0
+  of plJumping:
+    # Legs may be chambered or extended
+    result.leftKneeBend = 40.0
+    result.rightKneeBend = 40.0
+  of plSpinning:
+    # One leg bent, one extended (simplified)
+    result.leftKneeBend += 10.0
+    result.rightKneeBend = 20.0
 
   # Leg extension for kicks - override with explicit angles
   if fighter.leftLeg.extended:

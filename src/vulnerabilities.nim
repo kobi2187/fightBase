@@ -67,6 +67,46 @@ type
     compliance*: float           # 0.0-1.0 likelihood to stop fighting
     recoveryTime*: int           # Frames to recover (if recoverable)
 
+# Calculate posture-based exposure modifier
+proc getPostureExposureModifier*(posture: PostureLevel, heightLevel: HeightZone): float =
+  ## Returns multiplier (0.0-2.0+) for how exposed targets at given height are
+  ## based on the fighter's posture
+  case posture:
+  of plStanding:
+    # Standing - normal exposure
+    case heightLevel:
+    of hzHigh: 1.0   # Head exposed
+    of hzMid: 1.0    # Body exposed
+    of hzLow: 0.8    # Legs somewhat protected by distance
+
+  of plCrouched:
+    # Crouched - head protected, body and legs more exposed
+    case heightLevel:
+    of hzHigh: 0.4   # Head much lower, harder to hit
+    of hzMid: 1.2    # Body more exposed (bent over)
+    of hzLow: 1.5    # Legs very exposed (sweeps, low kicks)
+
+  of plGrounded:
+    # Grounded - head somewhat protected, body exposed, legs very exposed
+    case heightLevel:
+    of hzHigh: 0.3   # Head on ground, hard to strike
+    of hzMid: 1.3    # Body accessible for ground strikes
+    of hzLow: 1.8    # Legs completely exposed for locks/strikes
+
+  of plJumping:
+    # Jumping - everything exposed, can't defend
+    case heightLevel:
+    of hzHigh: 1.5   # Head very exposed in air
+    of hzMid: 1.4    # Body exposed
+    of hzLow: 0.5    # Legs harder to reach when airborne
+
+  of plSpinning:
+    # Spinning - back exposed, unpredictable
+    case heightLevel:
+    of hzHigh: 1.3   # Head exposed during spin
+    of hzMid: 1.6    # Back/ribs very exposed
+    of hzLow: 0.9    # Legs moving, harder to target
+
 # Calculate reachability from a given position and stance
 proc calculateReachability*(
   attacker: Fighter,
@@ -98,11 +138,21 @@ proc calculateReachability*(
       else: 0.1
 
   # Modify by defender's stance exposure
-  let exposure = vulnData.exposureInStance[defender.stance]
+  let exposure = vulnData.exposureInStance[defender.pos.stance]
   reachability *= exposure
 
-  # Modify by defender's guard state
-  # TODO: Add guard position tracking
+  # NEW: Modify by defender's POSTURE (key addition!)
+  let postureModifier = getPostureExposureModifier(defender.posture, vulnData.heightLevel)
+  reachability *= postureModifier
+
+  # Modify by attacker's posture (affects ability to reach)
+  let attackerReachModifier = case attacker.posture:
+    of plStanding: 1.0
+    of plCrouched: 0.8      # Harder to reach high targets
+    of plGrounded: 0.4      # Very limited reach
+    of plJumping: 1.3       # Better reach from air
+    of plSpinning: 0.6      # Limited targeting during spin
+  reachability *= attackerReachModifier
 
   result = reachability
 
