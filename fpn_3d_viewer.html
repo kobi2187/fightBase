@@ -765,12 +765,14 @@
       const rShoulder = mannequin.getObjectByName('rightShoulder');
 
       if (lShoulder) {
+        lShoulder.rotation.order = 'YXZ';  // Yaw-Pitch-Roll order for proper shoulder mechanics
         lShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.leftShoulderPitch);  // Pitch: up/down
         lShoulder.rotation.z = THREE.MathUtils.degToRad(-pose.leftShoulderRoll);   // Roll: arm spreads outward
         lShoulder.rotation.y = THREE.MathUtils.degToRad(pose.leftShoulderYaw);     // Yaw: internal/external rotation (hooks!)
       }
 
       if (rShoulder) {
+        rShoulder.rotation.order = 'YXZ';  // Yaw-Pitch-Roll order for proper shoulder mechanics
         rShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.rightShoulderPitch);
         rShoulder.rotation.z = THREE.MathUtils.degToRad(pose.rightShoulderRoll);
         rShoulder.rotation.y = THREE.MathUtils.degToRad(pose.rightShoulderYaw);    // Yaw: internal/external rotation (hooks!)
@@ -802,6 +804,8 @@
       const isRightKicking = pose.rightHipPitch > 30;
 
       if (lHip) {
+        lHip.rotation.order = 'YXZ';  // Yaw-Pitch-Roll order for proper hip mechanics
+
         // X-axis pitch: forward/back (kicks)
         lHip.rotation.x = THREE.MathUtils.degToRad(-pose.leftHipPitch);
 
@@ -815,6 +819,8 @@
       }
 
       if (rHip) {
+        rHip.rotation.order = 'YXZ';  // Yaw-Pitch-Roll order for proper hip mechanics
+
         rHip.rotation.x = THREE.MathUtils.degToRad(-pose.rightHipPitch);
 
         const rightAbduction = isRightKicking ? pose.rightHipRoll : legBio.hipAbduction;
