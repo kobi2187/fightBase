@@ -74,7 +74,7 @@ proc main() =
       of "seed": seedValue = parseInt(val)
       else: discard
     of cmdArgument:
-      if command == "batch" and key.isDigit():
+      if command == "batch" and key.len > 0 and key[0].isDigit():
         batchSize = parseInt(key)
     of cmdEnd: discard
 

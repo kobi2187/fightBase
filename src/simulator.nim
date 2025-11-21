@@ -25,19 +25,19 @@ type
 # Helper functions for runtime state
 # ============================================================================
 
-proc getOverlay*(state: RuntimeFightState, who: FighterID): var RuntimeOverlay =
+proc getOverlay*(state: var RuntimeFightState, who: FighterID): var RuntimeOverlay =
   ## Get overlay for specified fighter
   if who == FighterA:
-    return state.overlayA
+    result = state.overlayA
   else:
-    return state.overlayB
+    result = state.overlayB
 
-proc getOpponentOverlay*(state: RuntimeFightState, who: FighterID): var RuntimeOverlay =
+proc getOpponentOverlay*(state: var RuntimeFightState, who: FighterID): var RuntimeOverlay =
   ## Get overlay for opponent
   if who == FighterA:
-    return state.overlayB
+    result = state.overlayB
   else:
-    return state.overlayA
+    result = state.overlayA
 
 # ============================================================================
 # Initial state creation

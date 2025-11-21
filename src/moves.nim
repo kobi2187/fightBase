@@ -226,6 +226,8 @@ proc createJab*(side: string = "left", origin: string = "Boxing"): Move =
       limbDamage: 0.0
     ),
     postureChange: none(PostureLevel),  # Jab doesn't change posture
+    defenderPostureChange: none(PostureLevel),  # Most moves don't change defender posture
+    momentumTransfer: 0.2,  # Strikes have moderate momentum transfer
     styleOrigins: @[origin],
     followups: @["cross_right", "hook_left", "step_back"],
     limbsUsed: limbUsed,
@@ -243,12 +245,15 @@ proc createJab*(side: string = "left", origin: string = "Boxing"): Move =
   result.viabilityCheck = moveViability
 
   # Set up application closure (position changes only, no overlay updates)
+  let moveCategory = result.category  # Capture copy instead of result
+  let physicsEff = result.physicsEffect  # Capture physics effect
+  let postureChg = result.postureChange  # Capture posture change
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
 
     # Calculate posture-dependent effectiveness
-    let postureMultiplier = getPostureEffectMultiplier(attacker[].posture, result.category)
+    let postureMultiplier = getPostureEffectMultiplier(attacker[].posture, moveCategory)
 
     # Extend arm temporarily (position change)
     if isLeft:
@@ -268,14 +273,14 @@ proc createJab*(side: string = "left", origin: string = "Boxing"): Move =
       retractLimb(attacker[].rightArm)
 
     # Update physics (position state) - scaled by posture
-    attacker[].momentum.linear += result.physicsEffect.linearMomentum * postureMultiplier
-    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta * postureMultiplier
-    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta * postureMultiplier
-    attacker[].biomech.weightDistribution += result.physicsEffect.weightShift * postureMultiplier
+    attacker[].momentum.linear += physicsEff.linearMomentum * postureMultiplier
+    attacker[].biomech.hipRotation += physicsEff.hipRotationDelta * postureMultiplier
+    attacker[].biomech.torsoRotation += physicsEff.torsoRotationDelta * postureMultiplier
+    attacker[].biomech.weightDistribution += physicsEff.weightShift * postureMultiplier
 
     # Apply posture change if specified (STATE TRANSITION!)
-    if result.postureChange.isSome:
-      attacker[].posture = result.postureChange.get()
+    if postureChg.isSome:
+      attacker[].posture = postureChg.get()
 
     state.sequenceLength += 1
 
@@ -316,6 +321,8 @@ proc createCross*(): Move =
       limbDamage: 0.0
     ),
     postureChange: none(PostureLevel),
+    defenderPostureChange: none(PostureLevel),  # Most moves don't change defender posture
+    momentumTransfer: 0.2,  # Strikes have moderate momentum transfer
     styleOrigins: @["Boxing", "Karate", "MMA"],
     followups: @["hook_left", "step_back", "clinch_entry"],
     limbsUsed: {RightArm},
@@ -384,6 +391,8 @@ proc createRoundhouseKick*(): Move =
       limbDamage: 0.0
     ),
     postureChange: none(PostureLevel),
+    defenderPostureChange: none(PostureLevel),  # Most moves don't change defender posture
+    momentumTransfer: 0.2,  # Strikes have moderate momentum transfer
     styleOrigins: @["Muay Thai", "Karate", "Taekwondo"],
     followups: @["step_back", "clinch_entry", "switch_stance"],
     limbsUsed: {RightLeg, LeftLeg},  # Uses both legs (standing leg + kicking leg)
@@ -454,6 +463,8 @@ proc createTeep*(): Move =
       limbDamage: 0.0
     ),
     postureChange: none(PostureLevel),
+    defenderPostureChange: none(PostureLevel),  # Most moves don't change defender posture
+    momentumTransfer: 0.5,  # Push moves have high momentum transfer
     styleOrigins: @["Muay Thai"],
     followups: @["step_forward", "roundhouse_right", "retreat"],
     limbsUsed: {LeftLeg, RightLeg},  # Uses both legs
@@ -521,6 +532,8 @@ proc createClinchEntry*(): Move =
       limbDamage: 0.0
     ),
     postureChange: none(PostureLevel),
+    defenderPostureChange: some(plGrounded),  # Clinch can ground opponent
+    momentumTransfer: 0.6,  # Clinches have high momentum transfer
     styleOrigins: @["Muay Thai", "Wrestling", "Judo"],
     followups: @["knee_strike", "throw_hip", "break_clinch"],
     limbsUsed: {LeftArm, RightArm},  # Uses both arms
@@ -581,6 +594,8 @@ proc createHipThrow*(): Move =
       limbDamage: 0.0
     ),
     postureChange: none(PostureLevel),
+    defenderPostureChange: some(plGrounded),  # Hip throw takes opponent down
+    momentumTransfer: 0.6,  # Throws have high momentum transfer
     styleOrigins: @["Judo", "Wrestling", "Aikido"],
     followups: @["mount", "side_control", "stand_up"],
     limbsUsed: {LeftArm, RightArm, LeftLeg, RightLeg},  # Uses everything
@@ -657,6 +672,8 @@ proc createStepBack*(): Move =
       limbDamage: 0.0
     ),
     postureChange: none(PostureLevel),
+    defenderPostureChange: none(PostureLevel),  # Most moves don't change defender posture
+    momentumTransfer: 0.0,  # Defensive/positional moves don't transfer momentum
     styleOrigins: @["Boxing", "Karate", "All"],
     followups: @["jab_left", "teep_front", "circle_left"],
     limbsUsed: {LeftLeg, RightLeg},  # Uses legs for movement
@@ -721,6 +738,8 @@ proc createBlockAndCounter*(): Move =
       limbDamage: 0.0
     ),
     postureChange: none(PostureLevel),
+    defenderPostureChange: none(PostureLevel),  # Most moves don't change defender posture
+    momentumTransfer: 0.0,  # Defensive/positional moves don't transfer momentum
     styleOrigins: @["Wing Chun", "Krav Maga", "JKD"],
     followups: @["trap_strike", "step_back"],
     limbsUsed: {LeftArm, RightArm},  # Uses both arms simultaneously
@@ -786,6 +805,8 @@ proc createStepAndJab*(): Move =
       limbDamage: 0.0
     ),
     postureChange: none(PostureLevel),
+    defenderPostureChange: none(PostureLevel),  # Most moves don't change defender posture
+    momentumTransfer: 0.2,  # Strikes have moderate momentum transfer
     styleOrigins: @["Boxing", "Karate", "All"],
     followups: @["cross_right", "step_back"],
     limbsUsed: {LeftArm, LeftLeg, RightLeg},  # Arm + footwork
@@ -821,6 +842,189 @@ proc createStepAndJab*(): Move =
 
 # ============================================================================
 # POSTURE-CHANGING MOVES (Examples of state transitions)
+# ============================================================================
+
+proc createSpinningBackfist*(): Move =
+  ## Spinning backfist - high commitment, can overcommit if miss
+  ## Requires or generates rotational momentum
+  result = Move(
+    id: "spinning_backfist",
+    name: "Spinning Backfist (Karate/TKD)",
+    moveType: mtOffensive,
+    category: mcWhipStrike,
+    energyCost: 0.2,
+    timeCost: 0.5,  # Takes time to spin
+    reach: 0.8,
+    height: High,
+    angleBias: 180.0,  # Comes from behind
+    recoveryTime: 0.6,
+    lethalPotential: 0.35,
+    positionShift: PositionDelta(
+      distanceChange: 0.0,
+      angleChange: 180.0,  # 180° spin
+      balanceChange: -0.2,
+      heightChange: 0.0
+    ),
+    physicsEffect: PhysicsEffect(
+      linearMomentum: 0.1,
+      rotationalMomentum: 120.0,  # High rotational momentum!
+      hipRotationDelta: 180.0,
+      torsoRotationDelta: 180.0,
+      weightShift: 0.1,
+      commitmentLevel: 0.7,  # HIGH COMMITMENT - can overcommit if miss
+      recoveryFramesOnMiss: 4,
+      recoveryFramesOnHit: 2
+    ),
+    damageEffect: DamageEffect(
+      directDamage: 0.2,
+      fatigueInflicted: 0.06,
+      targetLimb: none(LimbType),
+      limbDamage: 0.0
+    ),
+    postureChange: some(plSpinning),  # Enter spinning posture
+    defenderPostureChange: none(PostureLevel),  # Strike doesn't push down
+    momentumTransfer: 0.3,  # Some momentum transfers on hit
+    styleOrigins: @["Karate", "Taekwondo", "Kung Fu"],
+    followups: @["continue_spin", "recover_stance"],
+    limbsUsed: {RightArm, LeftLeg, RightLeg},  # Whole body spins
+    canCombine: false  # Cannot combine - full commitment
+  )
+
+  result.prerequisites = proc(state: FightState, who: FighterID): bool =
+    let fighter = if who == FighterA: state.a else: state.b
+    # Need good balance OR already have rotational momentum
+    result = (fighter.pos.balance >= 0.6 or fighter.momentum.rotational > 60.0)
+
+  result.viabilityCheck = moveViability
+
+  result.apply = proc(state: var FightState, who: FighterID) =
+    var attacker = if who == FighterA: addr state.a else: addr state.b
+    var defender = if who == FighterA: addr state.b else: addr state.a
+
+    # Calculate posture-dependent effectiveness
+    let postureMultiplier = getPostureEffectMultiplier(attacker[].posture, result.category)
+
+    # Attempt hit
+    let hitSuccess = rand(1.0) > defender[].pos.balance * 0.55
+
+    # Check for overcommitment (do this before state changes)
+    let overcommit = checkOvercommitment(attacker[], not hitSuccess, result.physicsEffect.commitmentLevel)
+
+    if hitSuccess:
+      # Hit lands - powerful strike
+      applyBalanceChange(defender[], -0.2 * postureMultiplier)
+      # Transfer momentum to defender
+      transferMomentum(attacker[], defender[], result.momentumTransfer, true)
+    else:
+      # MISSED - Apply overcommitment penalty
+      if overcommit.overcommitted:
+        applyBalanceChange(attacker[], -overcommit.balanceLoss)
+        # Change posture if fell over
+        if overcommit.postureChange.isSome:
+          attacker[].posture = overcommit.postureChange.get()
+
+    # Update physics - add rotational momentum
+    attacker[].momentum.linear += result.physicsEffect.linearMomentum * postureMultiplier
+    attacker[].momentum.rotational += result.physicsEffect.rotationalMomentum * postureMultiplier
+    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
+    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
+
+    # Change to spinning posture (temporarily) if didn't fall
+    if result.postureChange.isSome and not overcommit.postureChange.isSome:
+      attacker[].posture = result.postureChange.get()
+
+    state.sequenceLength += 1
+
+proc createPushKick*(): Move =
+  ## Heavy push kick - can knock opponent down (change their posture)
+  result = Move(
+    id: "push_kick_heavy",
+    name: "Heavy Push Kick (Muay Thai)",
+    moveType: mtOffensive,
+    category: mcPushStrike,
+    energyCost: 0.25,
+    timeCost: 0.45,
+    reach: 1.3,
+    height: Mid,
+    angleBias: 0.0,
+    recoveryTime: 0.6,
+    lethalPotential: 0.15,
+    positionShift: PositionDelta(
+      distanceChange: 0.6,  # Pushes opponent away
+      angleChange: 0.0,
+      balanceChange: -0.15,
+      heightChange: 0.0
+    ),
+    physicsEffect: PhysicsEffect(
+      linearMomentum: 0.8,  # High forward momentum!
+      rotationalMomentum: 0.0,
+      hipRotationDelta: 10.0,
+      torsoRotationDelta: 10.0,
+      weightShift: 0.2,
+      commitmentLevel: 0.5,
+      recoveryFramesOnMiss: 3,
+      recoveryFramesOnHit: 2
+    ),
+    damageEffect: DamageEffect(
+      directDamage: 0.1,
+      fatigueInflicted: 0.06,
+      targetLimb: none(LimbType),
+      limbDamage: 0.0
+    ),
+    postureChange: none(PostureLevel),  # Attacker stays standing
+    defenderPostureChange: some(plGrounded),  # Can knock defender DOWN!
+    momentumTransfer: 0.7,  # High momentum transfer - this is a PUSH
+    styleOrigins: @["Muay Thai", "MMA"],
+    followups: @["rush_forward", "ground_strike"],
+    limbsUsed: {RightLeg, LeftLeg},
+    canCombine: false
+  )
+
+  result.prerequisites = proc(state: FightState, who: FighterID): bool =
+    let fighter = if who == FighterA: state.a else: state.b
+    result = fighter.rightLeg.free and fighter.pos.balance >= 0.5
+
+  result.viabilityCheck = moveViability
+
+  result.apply = proc(state: var FightState, who: FighterID) =
+    var attacker = if who == FighterA: addr state.a else: addr state.b
+    var defender = if who == FighterA: addr state.b else: addr state.a
+
+    # Calculate posture-dependent effectiveness
+    let postureMultiplier = getPostureEffectMultiplier(attacker[].posture, result.category)
+
+    # Attempt hit
+    let hitSuccess = rand(1.0) > defender[].pos.balance * 0.6
+
+    if hitSuccess:
+      # Hit lands - heavy push
+      applyBalanceChange(defender[], -0.25 * postureMultiplier)
+
+      # Transfer momentum - this PUSHES the opponent
+      transferMomentum(attacker[], defender[], result.momentumTransfer, true)
+
+      # Check if defender gets knocked down
+      if defender[].pos.balance < 0.3:
+        # Defender falls to ground!
+        if result.defenderPostureChange.isSome:
+          defender[].posture = result.defenderPostureChange.get()
+
+      # Change distance
+      changeDistance(state, 0.6)
+    else:
+      # Miss - check overcommitment
+      let overcommit = checkOvercommitment(attacker[], true, result.physicsEffect.commitmentLevel)
+      if overcommit.overcommitted:
+        applyBalanceChange(attacker[], -overcommit.balanceLoss)
+
+    # Update physics
+    attacker[].momentum.linear += result.physicsEffect.linearMomentum * postureMultiplier
+    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
+
+    state.sequenceLength += 1
+
+# ============================================================================
+# BASIC POSTURE-CHANGING MOVES
 # ============================================================================
 
 proc createDuck*(): Move =
@@ -860,6 +1064,8 @@ proc createDuck*(): Move =
       limbDamage: 0.0
     ),
     postureChange: some(plCrouched),  # KEY: Changes posture to crouched!
+    defenderPostureChange: none(PostureLevel),  # Most moves don't change defender posture
+    momentumTransfer: 0.0,  # Defensive/positional moves don't transfer momentum
     styleOrigins: @["Boxing", "Muay Thai", "MMA"],
     followups: @["uppercut", "level_change", "takedown"],
     limbsUsed: {LeftLeg, RightLeg},  # Uses legs for level change
@@ -922,6 +1128,8 @@ proc createStandUp*(): Move =
       limbDamage: 0.0
     ),
     postureChange: some(plStanding),  # KEY: Changes posture to standing!
+    defenderPostureChange: none(PostureLevel),  # Most moves don't change defender posture
+    momentumTransfer: 0.0,  # Defensive/positional moves don't transfer momentum
     styleOrigins: @["All"],
     followups: @["jab_left", "step_back", "teep_front"],
     limbsUsed: {LeftLeg, RightLeg},  # Uses legs to stand
@@ -963,6 +1171,10 @@ proc initializeMoves*() =
   registerMove(createStepBack())
   registerMove(createBlockAndCounter())
   registerMove(createStepAndJab())
+
+  # Momentum-based moves (overcommitment and defender state changes)
+  registerMove(createSpinningBackfist())
+  registerMove(createPushKick())
 
   # Posture-changing moves (state transitions)
   registerMove(createDuck())

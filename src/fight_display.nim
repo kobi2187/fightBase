@@ -1,13 +1,13 @@
 ## Textual representation of fight states for human review
 
-import std/[strformat, strutils]
+import std/[strformat, strutils, options]
 import fight_types
 
-proc toLimbStatusStr*(limb: LimbStatus): string =
+proc toLimbStatusStr*(limb: LimbPosition): string =
   var parts: seq[string]
   if not limb.free: parts.add("TRAPPED")
   if limb.extended: parts.add("extended")
-  if limb.damaged > 0.3: parts.add(fmt"damaged({limb.damaged:.1f})")
+  if limb.angle != 0.0: parts.add(fmt"angle({limb.angle:.1f}°)")
   if parts.len == 0:
     "ready"
   else:
@@ -18,8 +18,7 @@ proc toFighterStr*(f: Fighter, label: string): string =
 Fighter {label}:
   Position: ({f.pos.x:.2f}, {f.pos.y:.2f}, {f.pos.z:.2f})
   Facing: {f.pos.facing:.0f}° | Stance: {f.pos.stance} | Balance: {f.pos.balance:.2f}
-  Fatigue: {f.fatigue:.2f} | Damage: {f.damage:.2f}
-  Side: {f.liveSide} | Control: {f.control}
+  Posture: {f.posture} | Side: {f.liveSide} | Control: {f.control}
   Left arm:  {toLimbStatusStr(f.leftArm)}
   Right arm: {toLimbStatusStr(f.rightArm)}
   Left leg:  {toLimbStatusStr(f.leftLeg)}
@@ -42,8 +41,8 @@ proc toTextRepr*(state: FightState): string =
 
 proc toCompactRepr*(state: FightState): string =
   ## Compact one-line representation for logs
-  let aStatus = fmt"A[fat:{state.a.fatigue:.1f} dmg:{state.a.damage:.1f} bal:{state.a.pos.balance:.1f}]"
-  let bStatus = fmt"B[fat:{state.b.fatigue:.1f} dmg:{state.b.damage:.1f} bal:{state.b.pos.balance:.1f}]"
+  let aStatus = fmt"A[{state.a.posture} bal:{state.a.pos.balance:.1f}]"
+  let bStatus = fmt"B[{state.b.posture} bal:{state.b.pos.balance:.1f}]"
   let ctrl = if state.a.control != None: fmt" ctrl:{state.a.control}" else: ""
   result = fmt"{aStatus} <-{state.distance}-> {bStatus}{ctrl}"
 
@@ -51,11 +50,10 @@ proc toAnalysisStr*(state: FightState): string =
   ## Analysis-focused representation highlighting key tactical factors
   result = fmt"Distance: {state.distance} | Seq: {state.sequenceLength}" & "\n"
 
-  # Fatigue comparison
-  let fatigueComp =
-    if state.a.fatigue < state.b.fatigue - 0.2: "A fresher"
-    elif state.b.fatigue < state.a.fatigue - 0.2: "B fresher"
-    else: "fatigue even"
+  # Posture comparison
+  let postureComp =
+    if state.a.posture != state.b.posture: fmt"A:{state.a.posture} vs B:{state.b.posture}"
+    else: fmt"both {state.a.posture}"
 
   # Balance comparison
   let balanceComp =
@@ -69,7 +67,7 @@ proc toAnalysisStr*(state: FightState): string =
     elif state.b.control != None: fmt"B has {state.b.control}"
     else: "no control"
 
-  result &= fmt"  {fatigueComp} | {balanceComp} | {controlStatus}" & "\n"
+  result &= fmt"  {postureComp} | {balanceComp} | {controlStatus}" & "\n"
 
   # Limb availability
   var aLimbs = 0
@@ -91,4 +89,4 @@ proc toMoveDescription*(move: Move): string =
   result = fmt"{move.name} ({move.category})"
   result &= fmt" - Energy: {move.energyCost:.2f}, Reach: {move.reach:.2f}m, Height: {move.height}"
   if move.styleOrigins.len > 0:
-    result &= fmt" - Origins: {move.styleOrigins.join(\", \")}"
+    result &= " - Origins: " & move.styleOrigins.join(", ")

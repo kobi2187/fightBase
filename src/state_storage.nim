@@ -2,7 +2,8 @@
 
 import fight_types
 import fight_display
-import std/[db_sqlite, strformat, times, json, hashes, base64]
+import std/[strformat, times, json, hashes, base64, options, strutils]
+import db_connector/db_sqlite
 
 type
   StateDB* = ref object
@@ -19,7 +20,7 @@ proc computeStateHash*(state: FightState): string =
   result = $h
 
 proc toJson*(fighter: Fighter): JsonNode =
-  ## Serialize fighter to JSON
+  ## Serialize fighter to JSON (position state only)
   %* {
     "pos": {
       "x": fighter.pos.x,
@@ -29,34 +30,41 @@ proc toJson*(fighter: Fighter): JsonNode =
       "stance": $fighter.pos.stance,
       "balance": fighter.pos.balance
     },
+    "posture": $fighter.posture,
     "leftArm": {
       "free": fighter.leftArm.free,
       "extended": fighter.leftArm.extended,
-      "damaged": fighter.leftArm.damaged,
       "angle": fighter.leftArm.angle
     },
     "rightArm": {
       "free": fighter.rightArm.free,
       "extended": fighter.rightArm.extended,
-      "damaged": fighter.rightArm.damaged,
       "angle": fighter.rightArm.angle
     },
     "leftLeg": {
       "free": fighter.leftLeg.free,
       "extended": fighter.leftLeg.extended,
-      "damaged": fighter.leftLeg.damaged,
       "angle": fighter.leftLeg.angle
     },
     "rightLeg": {
       "free": fighter.rightLeg.free,
       "extended": fighter.rightLeg.extended,
-      "damaged": fighter.rightLeg.damaged,
       "angle": fighter.rightLeg.angle
     },
-    "fatigue": fighter.fatigue,
-    "damage": fighter.damage,
     "liveSide": $fighter.liveSide,
-    "control": $fighter.control
+    "control": $fighter.control,
+    "momentum": {
+      "linear": fighter.momentum.linear,
+      "rotational": fighter.momentum.rotational,
+      "decayRate": fighter.momentum.decayRate
+    },
+    "biomech": {
+      "hipRotation": fighter.biomech.hipRotation,
+      "torsoRotation": fighter.biomech.torsoRotation,
+      "weightDistribution": fighter.biomech.weightDistribution,
+      "recovering": fighter.biomech.recovering,
+      "recoveryFrames": fighter.biomech.recoveryFrames
+    }
   }
 
 proc toJson*(state: FightState): JsonNode =
@@ -71,6 +79,65 @@ proc toJson*(state: FightState): JsonNode =
   }
   if state.winner.isSome:
     result["winner"] = % $state.winner.get()
+
+proc fromJson*(json: JsonNode, T: typedesc[Fighter]): Fighter =
+  ## Deserialize Fighter from JSON
+  result.pos = Position3D(
+    x: json["pos"]["x"].getFloat(),
+    y: json["pos"]["y"].getFloat(),
+    z: json["pos"]["z"].getFloat(),
+    facing: json["pos"]["facing"].getFloat(),
+    stance: parseEnum[StanceKind](json["pos"]["stance"].getStr()),
+    balance: json["pos"]["balance"].getFloat()
+  )
+  result.posture = parseEnum[PostureLevel](json["posture"].getStr())
+  result.leftArm = LimbPosition(
+    free: json["leftArm"]["free"].getBool(),
+    extended: json["leftArm"]["extended"].getBool(),
+    angle: json["leftArm"]["angle"].getFloat()
+  )
+  result.rightArm = LimbPosition(
+    free: json["rightArm"]["free"].getBool(),
+    extended: json["rightArm"]["extended"].getBool(),
+    angle: json["rightArm"]["angle"].getFloat()
+  )
+  result.leftLeg = LimbPosition(
+    free: json["leftLeg"]["free"].getBool(),
+    extended: json["leftLeg"]["extended"].getBool(),
+    angle: json["leftLeg"]["angle"].getFloat()
+  )
+  result.rightLeg = LimbPosition(
+    free: json["rightLeg"]["free"].getBool(),
+    extended: json["rightLeg"]["extended"].getBool(),
+    angle: json["rightLeg"]["angle"].getFloat()
+  )
+  result.liveSide = parseEnum[SideKind](json["liveSide"].getStr())
+  result.control = parseEnum[ControlKind](json["control"].getStr())
+  result.momentum = Momentum(
+    linear: json["momentum"]["linear"].getFloat(),
+    rotational: json["momentum"]["rotational"].getFloat(),
+    decayRate: json["momentum"]["decayRate"].getFloat()
+  )
+  result.biomech = BiomechanicalState(
+    hipRotation: json["biomech"]["hipRotation"].getFloat(),
+    torsoRotation: json["biomech"]["torsoRotation"].getFloat(),
+    weightDistribution: json["biomech"]["weightDistribution"].getFloat(),
+    recovering: json["biomech"]["recovering"].getBool(),
+    recoveryFrames: json["biomech"]["recoveryFrames"].getInt()
+  )
+
+proc fromJson*(json: JsonNode, T: typedesc[FightState]): FightState =
+  ## Deserialize FightState from JSON
+  result.a = fromJson(json["a"], Fighter)
+  result.b = fromJson(json["b"], Fighter)
+  result.distance = parseEnum[DistanceKind](json["distance"].getStr())
+  result.sequenceLength = json["sequenceLength"].getInt()
+  result.terminal = json["terminal"].getBool()
+  result.stateHash = json["stateHash"].getStr()
+  if json.hasKey("winner"):
+    result.winner = some(parseEnum[FighterID](json["winner"].getStr()))
+  else:
+    result.winner = none(FighterID)
 
 # ============================================================================
 # Database operations
@@ -291,7 +358,7 @@ proc exportUnknownStatesToFile*(sdb: StateDB, filename: string) =
   file.writeLine("=" .repeat(80))
   file.writeLine("UNRESOLVED UNKNOWN STATES")
   file.writeLine("=" .repeat(80))
-  file.writeLine()
+  file.writeLine("")
 
   var count = 0
   for row in sdb.db.fastRows(sql"""
@@ -303,10 +370,10 @@ proc exportUnknownStatesToFile*(sdb: StateDB, filename: string) =
     count += 1
     file.writeLine(fmt"[{count}] ID: {row[0]} | Hash: {row[1][0..15]}...")
     file.writeLine(fmt"Timestamp: {row[4]} | Notes: {row[3]}")
-    file.writeLine()
+    file.writeLine("")
     file.writeLine(row[2])
-    file.writeLine()
+    file.writeLine("")
     file.writeLine("-" .repeat(80))
-    file.writeLine()
+    file.writeLine("")
 
   echo fmt"Exported {count} unknown states to {filename}"
