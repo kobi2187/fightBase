@@ -406,8 +406,8 @@
 
       fighterA.position.set(-2, 0, 0);
       fighterB.position.set(2, 0, 0);
-      fighterA.rotation.y = -Math.PI / 2; // Face toward +X (toward B)
-      fighterB.rotation.y = Math.PI / 2;  // Face toward -X (toward A)
+      fighterA.rotation.y = 0;          // Face forward
+      fighterB.rotation.y = Math.PI;    // Face backward (toward A)
 
       scene.add(fighterA);
       scene.add(fighterB);
@@ -691,38 +691,37 @@
 
     function calculateLegBiomechanics(stanceWidthCm) {
       // Calculate proper leg angles based on biomechanics
-      // When legs spread, they form triangles - can't stay straight
+      // Stance width determines hip ABDUCTION angle (legs spreading sideways)
+      // The hip is a ball-and-socket joint at the pelvis
 
       const stanceM = stanceWidthCm / 100.0; // Convert to meters
-      const hipWidth = 0.30; // Hip joint separation (30cm)
+      const hipWidth = 0.30; // Hip joint separation (30cm) - FIXED at pelvis
       const thighLength = 0.45; // Thigh length (45cm)
       const shinLength = 0.45; // Shin length (45cm)
       const totalLegLength = thighLength + shinLength;
 
-      // Calculate how far each foot is from its hip joint
-      const footOffset = stanceM / 2; // Foot position from center
-      const hipJointOffset = hipWidth / 2; // Hip joint from center
-      const horizontalDistance = Math.abs(footOffset - hipJointOffset);
+      // Desired foot separation from stance width
+      const desiredFootSeparation = stanceM;
 
-      // For a given stance width, calculate the leg angle from vertical
-      // This assumes hips stay at same height and legs must reach the ground
-      const legAngleFromVertical = Math.atan(horizontalDistance / totalLegLength);
-      const legAngleDeg = THREE.MathUtils.radToDeg(legAngleFromVertical);
+      // Hip joints are fixed at ±15cm (hip width / 2)
+      // To achieve desired foot separation, calculate required hip abduction angle
+      const hipJointSeparation = hipWidth;
+      const additionalSpread = desiredFootSeparation - hipJointSeparation;
 
-      // Calculate knee bend needed to maintain hip height
-      // Wider stance = more knee bend to keep hips level
-      // Simple model: knee bend increases with stance width
+      // Hip abduction angle needed to spread feet to desired width
+      // tan(abduction_angle) = (additional_spread/2) / leg_length
+      const abductionAngle = Math.atan((additionalSpread / 2) / totalLegLength);
+      const abductionDeg = THREE.MathUtils.radToDeg(abductionAngle);
+
+      // Calculate knee bend: as legs angle out, knees must bend to keep feet on ground
       const baseKneeBend = 15; // Minimum bend even in narrow stance
-      const additionalBend = legAngleDeg * 1.2; // More bend as legs angle out
+      const additionalBend = abductionDeg * 1.5; // More bend as legs angle out
       const kneeBend = baseKneeBend + additionalBend;
 
-      // Calculate hip roll (legs spreading sideways)
-      const hipRoll = legAngleDeg * 0.6; // Hips roll out as legs spread
-
       return {
-        kneeBend: Math.min(kneeBend, 45), // Cap at 45° for realistic squat
-        hipRoll: Math.min(hipRoll, 25), // Cap hip roll
-        legAngle: legAngleDeg
+        kneeBend: Math.min(kneeBend, 60), // Cap at 60° for realistic squat
+        hipAbduction: Math.min(Math.abs(abductionDeg), 35), // Cap abduction at 35°
+        legAngle: abductionDeg
       };
     }
 
@@ -784,22 +783,35 @@
       // Calculate biomechanics from stance width
       const legBio = calculateLegBiomechanics(pose.stanceWidth);
 
-      // Apply hip angles - use biomechanically calculated roll unless overridden by kicks
-      const leftHipPitchFinal = pose.leftHipPitch !== 0 ? pose.leftHipPitch : 0;
-      const rightHipPitchFinal = pose.rightHipPitch !== 0 ? pose.rightHipPitch : 0;
+      // Hip ABDUCTION (Z-axis): spreading legs sideways for stance width
+      // Hip PITCH (X-axis): lifting leg forward/back for kicks
+      // Hip ROTATION (Y-axis): rotating leg inward/outward for round kicks
 
-      // Use calculated hip roll from stance width unless explicitly set
-      const leftHipRollFinal = pose.leftHipRoll !== 0 ? pose.leftHipRoll : legBio.hipRoll;
-      const rightHipRollFinal = pose.rightHipRoll !== 0 ? pose.rightHipRoll : -legBio.hipRoll;
+      // For stance: use calculated abduction angle from biomechanics
+      // For kicks: use explicit pitch/roll angles
+      const isLeftKicking = pose.leftHipPitch > 30;  // Threshold for kick
+      const isRightKicking = pose.rightHipPitch > 30;
 
       if (lHip) {
-        lHip.rotation.x = THREE.MathUtils.degToRad(-leftHipPitchFinal);
-        lHip.rotation.z = THREE.MathUtils.degToRad(leftHipRollFinal);
+        // X-axis pitch: forward/back (kicks)
+        lHip.rotation.x = THREE.MathUtils.degToRad(-pose.leftHipPitch);
+
+        // Z-axis abduction: spreading legs sideways
+        // Use biomechanical abduction for stance, or explicit angle for special moves
+        const leftAbduction = isLeftKicking ? pose.leftHipRoll : legBio.hipAbduction;
+        lHip.rotation.z = THREE.MathUtils.degToRad(-leftAbduction);  // Negative = outward
+
+        // Y-axis rotation: leg rotation (for round kicks)
+        lHip.rotation.y = 0;  // Can add pose.leftHipRotation if needed
       }
 
       if (rHip) {
-        rHip.rotation.x = THREE.MathUtils.degToRad(-rightHipPitchFinal);
-        rHip.rotation.z = THREE.MathUtils.degToRad(rightHipRollFinal);
+        rHip.rotation.x = THREE.MathUtils.degToRad(-pose.rightHipPitch);
+
+        const rightAbduction = isRightKicking ? pose.rightHipRoll : legBio.hipAbduction;
+        rHip.rotation.z = THREE.MathUtils.degToRad(rightAbduction);  // Positive = outward
+
+        rHip.rotation.y = 0;  // Can add pose.rightHipRotation if needed
       }
 
       // Apply knee bend - use biomechanically calculated bend unless overridden
@@ -811,13 +823,9 @@
       if (lKnee) lKnee.rotation.x = THREE.MathUtils.degToRad(rightKneeFinal);
       if (rKnee) rKnee.rotation.x = THREE.MathUtils.degToRad(leftKneeFinal);
 
-      // Stance width - position the legs
-      const leftLeg = mannequin.getObjectByName('leftLeg');
-      const rightLeg = mannequin.getObjectByName('rightLeg');
-      const stanceM = pose.stanceWidth / 100.0;
-
-      if (leftLeg) leftLeg.position.x = -stanceM / 2;
-      if (rightLeg) rightLeg.position.x = stanceM / 2;
+      // NOTE: Leg positions are FIXED at hip socket locations (±15cm from center)
+      // Stance width is controlled by HIP ROTATION (abduction), not by moving the legs!
+      // The hip is a ball-and-socket joint that rotates to angle the leg outward
     }
 
     function resetPose() {
