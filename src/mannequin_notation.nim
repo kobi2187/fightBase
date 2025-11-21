@@ -16,10 +16,12 @@ type
     neckRotation*: float          # degrees, head turn
 
     # Shoulders (relative to torso)
-    leftShoulderPitch*: float     # degrees, forward/back swing
-    leftShoulderRoll*: float      # degrees, raising arm sideways
+    leftShoulderPitch*: float     # degrees, forward/back swing (X-axis)
+    leftShoulderRoll*: float      # degrees, raising arm sideways (Z-axis)
+    leftShoulderYaw*: float       # degrees, internal/external rotation (Y-axis)
     rightShoulderPitch*: float
     rightShoulderRoll*: float
+    rightShoulderYaw*: float
 
     # Elbows
     leftElbowBend*: float         # degrees, 0 = straight, 150 = fully bent
@@ -47,19 +49,19 @@ type
 ## Fighter format: lean.rotation.shoulders.elbows.hips.knees.stance
 ##   lean: fb,lr (forward-back in cm, left-right in cm)
 ##   rotation: hip,torso,neck (all in degrees)
-##   shoulders: lp,lr,rp,rr (left pitch/roll, right pitch/roll)
+##   shoulders: lp,lr,ly,rp,rr,ry (left pitch/roll/yaw, right pitch/roll/yaw)
 ##   elbows: l,r (left bend, right bend in degrees)
 ##   hips: lp,lr,ly,rp,rr,ry (left pitch/roll/yaw, right pitch/roll/yaw)
 ##   knees: l,r (left bend, right bend in degrees)
 ##   stance: width,facing (stance width in cm, facing angle in degrees)
 ##
 ## Example:
-## 5,0.10,5,2.20,10,25,15.90,95.0,0,5,0,0,5,0,0.15,20.45,90.30,0,90
+## 5,0.10,5,2.20,10,25,0,15,30,0.90,95.0,0,5,0,0,5,0,0.15,20.45,90.30,0,90
 ##
 ## Decoded:
 ##   Lean: 5cm forward, 0cm sideways
 ##   Rotation: 10° hip, 5° torso, 2° neck
-##   Shoulders: L(20° pitch, 10° roll) R(25° pitch, 15° roll)
+##   Shoulders: L(20° pitch, 10° roll, 25° yaw) R(0° pitch, 15° roll, 30° yaw)
 ##   Elbows: L(90° bent) R(95° bent)
 ##   Hips: L(0° pitch, 5° roll, 0° yaw) R(0° pitch, 5° roll, 0° yaw)
 ##   Knees: L(15° bent) R(20° bent)
@@ -69,8 +71,8 @@ proc poseToMPN*(pose: MannequinPose): string =
   ## Convert pose to compact MPN notation
   result = fmt"{pose.leanForwardBack:.0f},{pose.leanLeftRight:.0f}."  # lean
   result.add fmt"{pose.hipRotation:.0f},{pose.torsoRotation:.0f},{pose.neckRotation:.0f}."  # rotation
-  result.add fmt"{pose.leftShoulderPitch:.0f},{pose.leftShoulderRoll:.0f},"
-  result.add fmt"{pose.rightShoulderPitch:.0f},{pose.rightShoulderRoll:.0f}."  # shoulders
+  result.add fmt"{pose.leftShoulderPitch:.0f},{pose.leftShoulderRoll:.0f},{pose.leftShoulderYaw:.0f},"
+  result.add fmt"{pose.rightShoulderPitch:.0f},{pose.rightShoulderRoll:.0f},{pose.rightShoulderYaw:.0f}."  # shoulders
   result.add fmt"{pose.leftElbowBend:.0f},{pose.rightElbowBend:.0f}."  # elbows
   result.add fmt"{pose.leftHipPitch:.0f},{pose.leftHipRoll:.0f},{pose.leftHipYaw:.0f},"
   result.add fmt"{pose.rightHipPitch:.0f},{pose.rightHipRoll:.0f},{pose.rightHipYaw:.0f}."  # hips
@@ -98,8 +100,10 @@ proc mpnToPose*(mpn: string): MannequinPose =
   let shoulderParts = parts[2].split(',')
   result.leftShoulderPitch = parseFloat(shoulderParts[0])
   result.leftShoulderRoll = parseFloat(shoulderParts[1])
-  result.rightShoulderPitch = parseFloat(shoulderParts[2])
-  result.rightShoulderRoll = parseFloat(shoulderParts[3])
+  result.leftShoulderYaw = parseFloat(shoulderParts[2])
+  result.rightShoulderPitch = parseFloat(shoulderParts[3])
+  result.rightShoulderRoll = parseFloat(shoulderParts[4])
+  result.rightShoulderYaw = parseFloat(shoulderParts[5])
 
   # Elbows
   let elbowParts = parts[3].split(',')
@@ -191,19 +195,23 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
 
   # Left shoulder
   if fighter.leftArm.extended:
-    result.leftShoulderPitch = -30.0   # Forward punch
-    result.leftShoulderRoll = 10.0
+    result.leftShoulderPitch = -30.0   # Forward punch (X-axis)
+    result.leftShoulderRoll = 10.0     # Slight raise (Z-axis)
+    result.leftShoulderYaw = 0.0       # No rotation for straight punch (Y-axis)
   else:
     result.leftShoulderPitch = guardHeight
     result.leftShoulderRoll = 5.0
+    result.leftShoulderYaw = 0.0       # Neutral guard
 
   # Right shoulder
   if fighter.rightArm.extended:
     result.rightShoulderPitch = -30.0
     result.rightShoulderRoll = 10.0
+    result.rightShoulderYaw = 0.0
   else:
     result.rightShoulderPitch = guardHeight
     result.rightShoulderRoll = 5.0
+    result.rightShoulderYaw = 45.0     # Rear guard rotated to protect jaw
 
   # Elbows - extended = straight, guard = bent
   result.leftElbowBend = if fighter.leftArm.extended: 10.0 else: 90.0
@@ -282,8 +290,10 @@ proc createNeutralPose*(): MannequinPose =
     neckRotation: 0.0,
     leftShoulderPitch: 20.0,   # Guard position
     leftShoulderRoll: 5.0,
+    leftShoulderYaw: 0.0,      # Neutral (lead hand)
     rightShoulderPitch: 20.0,
     rightShoulderRoll: 5.0,
+    rightShoulderYaw: 45.0,    # Rotated (rear guard protects jaw)
     leftElbowBend: 90.0,       # Bent at guard
     rightElbowBend: 90.0,
     leftHipPitch: 10.0,        # Orthodox stance

@@ -319,6 +319,7 @@
     <button class="example-btn" onclick="loadPreset('guard')">Guard Position</button>
     <button class="example-btn" onclick="loadPreset('kick')">Front Kick</button>
     <button class="example-btn" onclick="loadPreset('highkick')">High Kick to Head</button>
+    <button class="example-btn" onclick="loadPreset('hook')">Hook Punch</button>
 
     <div class="info">
       <strong>MPN Output:</strong>
@@ -349,8 +350,10 @@
         neckRotation: 0,
         leftShoulderPitch: 0,
         leftShoulderRoll: 0,
+        leftShoulderYaw: 0,
         rightShoulderPitch: 0,
         rightShoulderRoll: 0,
+        rightShoulderYaw: 45,  // Rear guard rotated inward to protect jaw
         leftElbowBend: 90,
         rightElbowBend: 90,
         leftHipPitch: 0,
@@ -674,7 +677,7 @@
     }
 
     function poseToMPN(pose) {
-      return `${pose.leanForwardBack},${pose.leanLeftRight}.${pose.hipRotation},${pose.torsoRotation},${pose.neckRotation}.${pose.leftShoulderPitch},${pose.leftShoulderRoll},${pose.rightShoulderPitch},${pose.rightShoulderRoll}.${pose.leftElbowBend},${pose.rightElbowBend}.${pose.leftHipPitch},${pose.leftHipRoll},${pose.leftHipYaw},${pose.rightHipPitch},${pose.rightHipRoll},${pose.rightHipYaw}.${pose.leftKneeBend},${pose.rightKneeBend}.${pose.stanceWidth},90`;
+      return `${pose.leanForwardBack},${pose.leanLeftRight}.${pose.hipRotation},${pose.torsoRotation},${pose.neckRotation}.${pose.leftShoulderPitch},${pose.leftShoulderRoll},${pose.leftShoulderYaw},${pose.rightShoulderPitch},${pose.rightShoulderRoll},${pose.rightShoulderYaw}.${pose.leftElbowBend},${pose.rightElbowBend}.${pose.leftHipPitch},${pose.leftHipRoll},${pose.leftHipYaw},${pose.rightHipPitch},${pose.rightHipRoll},${pose.rightHipYaw}.${pose.leftKneeBend},${pose.rightKneeBend}.${pose.stanceWidth},90`;
     }
 
     function resetMannequinPose(mannequin) {
@@ -757,18 +760,20 @@
       if (neck) neck.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
       if (head) head.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
 
-      // Shoulders
+      // Shoulders (3DOF ball-and-socket joint)
       const lShoulder = mannequin.getObjectByName('leftShoulder');
       const rShoulder = mannequin.getObjectByName('rightShoulder');
 
       if (lShoulder) {
-        lShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.leftShoulderPitch);
-        lShoulder.rotation.z = THREE.MathUtils.degToRad(-pose.leftShoulderRoll); // Negative = arm goes outward
+        lShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.leftShoulderPitch);  // Pitch: up/down
+        lShoulder.rotation.z = THREE.MathUtils.degToRad(-pose.leftShoulderRoll);   // Roll: arm spreads outward
+        lShoulder.rotation.y = THREE.MathUtils.degToRad(pose.leftShoulderYaw);     // Yaw: internal/external rotation (hooks!)
       }
 
       if (rShoulder) {
         rShoulder.rotation.x = THREE.MathUtils.degToRad(-pose.rightShoulderPitch);
-        rShoulder.rotation.z = THREE.MathUtils.degToRad(pose.rightShoulderRoll); // Positive = arm goes outward
+        rShoulder.rotation.z = THREE.MathUtils.degToRad(pose.rightShoulderRoll);
+        rShoulder.rotation.y = THREE.MathUtils.degToRad(pose.rightShoulderYaw);    // Yaw: internal/external rotation (hooks!)
       }
 
       // Elbows (negative because elbow bends bring forearm UP/back, not down)
@@ -858,14 +863,18 @@
         neckRotation: Math.floor((Math.random() - 0.5) * 80),
         leftShoulderPitch: Math.floor(-30 + Math.random() * 150),
         leftShoulderRoll: Math.floor(Math.random() * 120),
+        leftShoulderYaw: Math.floor((Math.random() - 0.5) * 120), // -60 to 60
         rightShoulderPitch: Math.floor(-30 + Math.random() * 150),
         rightShoulderRoll: Math.floor(Math.random() * 120),
+        rightShoulderYaw: Math.floor((Math.random() - 0.5) * 120),
         leftElbowBend: Math.floor(Math.random() * 140),
         rightElbowBend: Math.floor(Math.random() * 140),
         leftHipPitch: Math.floor(-30 + Math.random() * 230), // -30 to 200 for high kicks
         leftHipRoll: Math.floor((Math.random() - 0.5) * 60),
+        leftHipYaw: Math.floor((Math.random() - 0.5) * 120),
         rightHipPitch: Math.floor(-30 + Math.random() * 230), // -30 to 200 for high kicks
         rightHipRoll: Math.floor((Math.random() - 0.5) * 60),
+        rightHipYaw: Math.floor((Math.random() - 0.5) * 120),
         leftKneeBend: Math.floor(Math.random() * 120),
         rightKneeBend: Math.floor(Math.random() * 120),
         stanceWidth: Math.floor(25 + Math.random() * 50)
@@ -934,6 +943,22 @@
             leftKneeBend: 20, // Standing leg slightly bent
             leftHipPitch: -10, // Standing leg stable
             stanceWidth: 30
+          };
+          break;
+        case 'hook':
+          pose = {
+            ...createNeutralPose(),
+            leanForwardBack: 5,
+            leanLeftRight: -10, // Lean to load hook
+            hipRotation: -25, // Hip rotates into punch
+            torsoRotation: -30, // Torso winds up
+            leftShoulderPitch: 0, // Shoulder stays level (not up)
+            leftShoulderRoll: 45, // Arm spreads wide to side
+            leftShoulderYaw: -70, // INTERNAL ROTATION - elbow points forward for hook!
+            leftElbowBend: 90, // Classic 90° bent arm hook
+            rightShoulderPitch: -10,
+            rightShoulderRoll: 20,
+            rightShoulderYaw: 45 // Rear hand stays tucked
           };
           break;
       }
