@@ -411,8 +411,8 @@
 
       fighterA.position.set(-2, 0, 0);
       fighterB.position.set(2, 0, 0);
-      fighterA.rotation.y = 0;          // Face forward
-      fighterB.rotation.y = Math.PI;    // Face backward (toward A)
+      fighterA.rotation.y = Math.PI / 2;    // Face right (+X direction, toward B)
+      fighterB.rotation.y = -Math.PI / 2;   // Face left (-X direction, toward A)
 
       scene.add(fighterA);
       scene.add(fighterB);
@@ -757,9 +757,15 @@
         torso.rotation.y = THREE.MathUtils.degToRad(pose.torsoRotation);
       }
 
-      // Hips stay level (no lean)
+      // Hips rotation (pelvis twist) - but keep feet planted!
       if (hips) {
         hips.rotation.y = THREE.MathUtils.degToRad(pose.hipRotation);
+
+        // Counter-rotate the legs to keep feet planted on the ground
+        const lLeg = mannequin.getObjectByName('leftLeg');
+        const rLeg = mannequin.getObjectByName('rightLeg');
+        if (lLeg) lLeg.rotation.y = -THREE.MathUtils.degToRad(pose.hipRotation);
+        if (rLeg) rLeg.rotation.y = -THREE.MathUtils.degToRad(pose.hipRotation);
       }
 
       if (neck) neck.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
