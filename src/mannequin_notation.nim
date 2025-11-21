@@ -123,45 +123,44 @@ proc mpnToPose*(mpn: string): MannequinPose =
 
 type
   LegBiomechanics = object
-    kneeBend*: float      # Calculated knee bend in degrees
-    hipRoll*: float       # Calculated hip roll in degrees
-    legAngle*: float      # Leg angle from vertical in degrees
+    kneeBend*: float         # Calculated knee bend in degrees
+    hipAbduction*: float     # Hip abduction angle for stance width
+    legAngle*: float         # Leg angle from vertical in degrees
 
 proc calculateLegBiomechanics(stanceWidthM: float): LegBiomechanics =
   ## Calculate biomechanically correct leg angles from stance width
-  ## When legs spread, they form triangles - can't stay completely straight
-  ## The thighs connect to the hip, so wider stance requires knee bend
+  ## Stance width determines hip ABDUCTION angle (legs spreading sideways)
+  ## The hip is a ball-and-socket joint at the pelvis - it rotates, not repositions
 
   const
-    hipWidth = 0.30       # Hip joint separation in meters (30cm)
+    hipWidth = 0.30       # Hip joint separation in meters (30cm) - FIXED at pelvis
     thighLength = 0.45    # Thigh length in meters (45cm)
     shinLength = 0.45     # Shin length in meters (45cm)
 
   let totalLegLength = thighLength + shinLength
 
-  # Calculate how far each foot is from its hip joint
-  let footOffset = stanceWidthM / 2.0        # Foot position from centerline
-  let hipJointOffset = hipWidth / 2.0        # Hip joint from centerline
-  let horizontalDistance = abs(footOffset - hipJointOffset)
+  # Desired foot separation from stance width
+  let desiredFootSeparation = stanceWidthM
 
-  # Calculate leg angle from vertical using triangle geometry
-  # tan(angle) = horizontal / vertical
-  let legAngleFromVertical = arctan(horizontalDistance / totalLegLength)
-  let legAngleDeg = radToDeg(legAngleFromVertical)
+  # Hip joints are fixed at hip width (30cm apart)
+  # To achieve desired foot separation, calculate required hip abduction angle
+  let hipJointSeparation = hipWidth
+  let additionalSpread = desiredFootSeparation - hipJointSeparation
 
-  # Calculate knee bend needed to maintain hip height
-  # Wider stance = more knee bend to keep hips level
-  const baseKneeBend = 15.0        # Minimum bend even in narrow stance
-  let additionalBend = legAngleDeg * 1.2  # More bend as legs angle out
-  let kneeBend = min(baseKneeBend + additionalBend, 45.0)  # Cap at 45°
+  # Hip abduction angle needed to spread feet to desired width
+  # tan(abduction_angle) = (additional_spread/2) / leg_length
+  let abductionAngle = arctan((additionalSpread / 2.0) / totalLegLength)
+  let abductionDeg = radToDeg(abductionAngle)
 
-  # Calculate hip roll (legs spreading sideways)
-  let hipRoll = min(legAngleDeg * 0.6, 25.0)  # Cap at 25°
+  # Calculate knee bend: as legs angle out, knees must bend to keep feet on ground
+  const baseKneeBend = 15.0           # Minimum bend even in narrow stance
+  let additionalBend = abductionDeg * 1.5  # More bend as legs angle out
+  let kneeBend = min(baseKneeBend + additionalBend, 60.0)  # Cap at 60°
 
   result = LegBiomechanics(
     kneeBend: kneeBend,
-    hipRoll: hipRoll,
-    legAngle: legAngleDeg
+    hipAbduction: min(abs(abductionDeg), 35.0),  # Cap abduction at 35°
+    legAngle: abductionDeg
   )
 
 proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
@@ -231,11 +230,15 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
     result.leftHipPitch = 0.0
     result.rightHipPitch = 0.0
 
-  # Hip roll and knee bend calculated from stance width biomechanics
-  # Wider stance = legs spread = need more knee bend to keep hip height
+  # Hip abduction and knee bend calculated from stance width biomechanics
+  # Wider stance = more hip abduction = need more knee bend
+  # Hip abduction is for STANCE WIDTH (legs spreading at ball-socket joint)
+  # Hip roll/pitch is for KICKS (rotating the leg for strikes)
   let legBio = calculateLegBiomechanics(result.stanceWidth)
-  result.leftHipRoll = legBio.hipRoll
-  result.rightHipRoll = -legBio.hipRoll  # Opposite direction
+
+  # For normal stance: use calculated abduction
+  result.leftHipRoll = legBio.hipAbduction
+  result.rightHipRoll = legBio.hipAbduction
 
   # Base knee bend from biomechanics
   result.leftKneeBend = legBio.kneeBend
@@ -246,13 +249,15 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
     result.leftKneeBend += 20.0   # Extra deep bend
     result.rightKneeBend += 20.0
 
-  # Leg extension for kicks
+  # Leg extension for kicks - override with explicit angles
   if fighter.leftLeg.extended:
-    result.leftHipPitch = 45.0   # Kicking
-    result.leftKneeBend = 30.0   # Partially extended
+    result.leftHipPitch = 45.0      # Lift leg forward
+    result.leftKneeBend = 30.0      # Partially extended
+    result.leftHipRoll = 20.0       # Leg rotation for round kick
   if fighter.rightLeg.extended:
     result.rightHipPitch = 45.0
     result.rightKneeBend = 30.0
+    result.rightHipRoll = 20.0
 
   # Facing angle (simplified - could be derived from pos.facing)
   result.facingAngle = 90.0  # Facing opponent
