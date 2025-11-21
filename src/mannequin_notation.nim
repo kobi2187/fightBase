@@ -121,6 +121,49 @@ proc mpnToPose*(mpn: string): MannequinPose =
   result.stanceWidth = parseFloat(stanceParts[0]) / 100.0  # Convert cm to m
   result.facingAngle = parseFloat(stanceParts[1])
 
+type
+  LegBiomechanics = object
+    kneeBend*: float      # Calculated knee bend in degrees
+    hipRoll*: float       # Calculated hip roll in degrees
+    legAngle*: float      # Leg angle from vertical in degrees
+
+proc calculateLegBiomechanics(stanceWidthM: float): LegBiomechanics =
+  ## Calculate biomechanically correct leg angles from stance width
+  ## When legs spread, they form triangles - can't stay completely straight
+  ## The thighs connect to the hip, so wider stance requires knee bend
+
+  const
+    hipWidth = 0.30       # Hip joint separation in meters (30cm)
+    thighLength = 0.45    # Thigh length in meters (45cm)
+    shinLength = 0.45     # Shin length in meters (45cm)
+
+  let totalLegLength = thighLength + shinLength
+
+  # Calculate how far each foot is from its hip joint
+  let footOffset = stanceWidthM / 2.0        # Foot position from centerline
+  let hipJointOffset = hipWidth / 2.0        # Hip joint from centerline
+  let horizontalDistance = abs(footOffset - hipJointOffset)
+
+  # Calculate leg angle from vertical using triangle geometry
+  # tan(angle) = horizontal / vertical
+  let legAngleFromVertical = arctan(horizontalDistance / totalLegLength)
+  let legAngleDeg = radToDeg(legAngleFromVertical)
+
+  # Calculate knee bend needed to maintain hip height
+  # Wider stance = more knee bend to keep hips level
+  const baseKneeBend = 15.0        # Minimum bend even in narrow stance
+  let additionalBend = legAngleDeg * 1.2  # More bend as legs angle out
+  let kneeBend = min(baseKneeBend + additionalBend, 45.0)  # Cap at 45°
+
+  # Calculate hip roll (legs spreading sideways)
+  let hipRoll = min(legAngleDeg * 0.6, 25.0)  # Cap at 25°
+
+  result = LegBiomechanics(
+    kneeBend: kneeBend,
+    hipRoll: hipRoll,
+    legAngle: legAngleDeg
+  )
+
 proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
   ## Convert FightState fighter to mannequin pose
   ## This derives the physical pose from game state
@@ -163,6 +206,13 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
   result.leftElbowBend = if fighter.leftArm.extended: 10.0 else: 90.0
   result.rightElbowBend = if fighter.rightArm.extended: 10.0 else: 90.0
 
+  # Stance width - set first because biomechanics depend on it
+  result.stanceWidth = case fighter.pos.stance:
+    of skWide: 0.60
+    of skWrestling: 0.70
+    of skNarrow: 0.25
+    else: 0.40
+
   # Hips - derive from stance
   case fighter.pos.stance:
   of skOrthodox:
@@ -181,20 +231,20 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
     result.leftHipPitch = 0.0
     result.rightHipPitch = 0.0
 
-  result.leftHipRoll = 0.0   # Neutral
-  result.rightHipRoll = 0.0
+  # Hip roll and knee bend calculated from stance width biomechanics
+  # Wider stance = legs spread = need more knee bend to keep hip height
+  let legBio = calculateLegBiomechanics(result.stanceWidth)
+  result.leftHipRoll = legBio.hipRoll
+  result.rightHipRoll = -legBio.hipRoll  # Opposite direction
 
-  # Knees - derive from stance
-  case fighter.pos.stance:
-  of skWrestling:
-    result.leftKneeBend = 45.0   # Deep bend
-    result.rightKneeBend = 45.0
-  of skWide:
-    result.leftKneeBend = 25.0
-    result.rightKneeBend = 25.0
-  else:
-    result.leftKneeBend = 15.0   # Slight bend
-    result.rightKneeBend = 15.0
+  # Base knee bend from biomechanics
+  result.leftKneeBend = legBio.kneeBend
+  result.rightKneeBend = legBio.kneeBend
+
+  # Additional bend for wrestling/low stances
+  if fighter.pos.stance == skWrestling:
+    result.leftKneeBend += 20.0   # Extra deep bend
+    result.rightKneeBend += 20.0
 
   # Leg extension for kicks
   if fighter.leftLeg.extended:
@@ -203,13 +253,6 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
   if fighter.rightLeg.extended:
     result.rightHipPitch = 45.0
     result.rightKneeBend = 30.0
-
-  # Stance width
-  result.stanceWidth = case fighter.pos.stance:
-    of skWide: 0.60
-    of skWrestling: 0.70
-    of skNarrow: 0.25
-    else: 0.40
 
   # Facing angle (simplified - could be derived from pos.facing)
   result.facingAngle = 90.0  # Facing opponent

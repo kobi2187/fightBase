@@ -150,18 +150,18 @@
     <h3>Body Position</h3>
     <div class="slider-group">
       <div class="slider-label">
-        <span>Lean Forward/Back</span>
-        <span class="slider-value" id="val-lean-fb">0 cm</span>
+        <span>Torso Lean Forward/Back (from hip)</span>
+        <span class="slider-value" id="val-lean-fb">0°</span>
       </div>
-      <input type="range" id="lean-fb" min="-50" max="50" value="0" step="1" oninput="updatePose()">
+      <input type="range" id="lean-fb" min="-45" max="45" value="0" step="1" oninput="updatePose()">
     </div>
 
     <div class="slider-group">
       <div class="slider-label">
-        <span>Lean Left/Right</span>
-        <span class="slider-value" id="val-lean-lr">0 cm</span>
+        <span>Torso Lean Left/Right (from hip)</span>
+        <span class="slider-value" id="val-lean-lr">0°</span>
       </div>
-      <input type="range" id="lean-lr" min="-40" max="40" value="0" step="1" oninput="updatePose()">
+      <input type="range" id="lean-lr" min="-45" max="45" value="0" step="1" oninput="updatePose()">
     </div>
 
     <h3>Torso Rotation</h3>
@@ -406,8 +406,8 @@
 
       fighterA.position.set(-2, 0, 0);
       fighterB.position.set(2, 0, 0);
-      fighterA.rotation.y = Math.PI / 2;
-      fighterB.rotation.y = -Math.PI / 2;
+      fighterA.rotation.y = -Math.PI / 2; // Face toward +X (toward B)
+      fighterB.rotation.y = Math.PI / 2;  // Face toward -X (toward A)
 
       scene.add(fighterA);
       scene.add(fighterB);
@@ -474,6 +474,19 @@
       headMesh.position.y = 0.2; // Head mesh offset
       headMesh.castShadow = true;
       headGroup.add(headMesh);
+
+      // Nose - cone pointing forward to show orientation
+      const noseMaterial = new THREE.MeshStandardMaterial({
+        color: color,
+        roughness: 0.5,
+        metalness: 0.3
+      });
+      const noseGeometry = new THREE.ConeGeometry(0.04, 0.12, 8);
+      const noseMesh = new THREE.Mesh(noseGeometry, noseMaterial);
+      noseMesh.position.set(0, 0.2, 0.16); // Stick out from front of head
+      noseMesh.rotation.x = Math.PI / 2; // Point forward
+      noseMesh.castShadow = true;
+      headGroup.add(noseMesh);
 
       neckGroup.add(headGroup); // Head is child of neck
 
@@ -613,8 +626,8 @@
       }
 
       // Update value displays
-      document.getElementById('val-lean-fb').textContent = pose.leanForwardBack + ' cm';
-      document.getElementById('val-lean-lr').textContent = pose.leanLeftRight + ' cm';
+      document.getElementById('val-lean-fb').textContent = pose.leanForwardBack + '°';
+      document.getElementById('val-lean-lr').textContent = pose.leanLeftRight + '°';
       document.getElementById('val-hip-rot').textContent = pose.hipRotation + '°';
       document.getElementById('val-torso-rot').textContent = pose.torsoRotation + '°';
       document.getElementById('val-neck-rot').textContent = pose.neckRotation + '°';
@@ -676,29 +689,66 @@
       if (rightLeg) rightLeg.position.x = 0;
     }
 
+    function calculateLegBiomechanics(stanceWidthCm) {
+      // Calculate proper leg angles based on biomechanics
+      // When legs spread, they form triangles - can't stay straight
+
+      const stanceM = stanceWidthCm / 100.0; // Convert to meters
+      const hipWidth = 0.30; // Hip joint separation (30cm)
+      const thighLength = 0.45; // Thigh length (45cm)
+      const shinLength = 0.45; // Shin length (45cm)
+      const totalLegLength = thighLength + shinLength;
+
+      // Calculate how far each foot is from its hip joint
+      const footOffset = stanceM / 2; // Foot position from center
+      const hipJointOffset = hipWidth / 2; // Hip joint from center
+      const horizontalDistance = Math.abs(footOffset - hipJointOffset);
+
+      // For a given stance width, calculate the leg angle from vertical
+      // This assumes hips stay at same height and legs must reach the ground
+      const legAngleFromVertical = Math.atan(horizontalDistance / totalLegLength);
+      const legAngleDeg = THREE.MathUtils.radToDeg(legAngleFromVertical);
+
+      // Calculate knee bend needed to maintain hip height
+      // Wider stance = more knee bend to keep hips level
+      // Simple model: knee bend increases with stance width
+      const baseKneeBend = 15; // Minimum bend even in narrow stance
+      const additionalBend = legAngleDeg * 1.2; // More bend as legs angle out
+      const kneeBend = baseKneeBend + additionalBend;
+
+      // Calculate hip roll (legs spreading sideways)
+      const hipRoll = legAngleDeg * 0.6; // Hips roll out as legs spread
+
+      return {
+        kneeBend: Math.min(kneeBend, 45), // Cap at 45° for realistic squat
+        hipRoll: Math.min(hipRoll, 25), // Cap hip roll
+        legAngle: legAngleDeg
+      };
+    }
+
     function poseMannequin(mannequin, pose) {
-      // Separate upper/lower body lean for more realistic posture
-      // Lower body (hips) gets 30% of lean, upper body (torso) gets 70%
+      // Torso angle from hips - lean is now in degrees, not cm
       const hips = mannequin.getObjectByName('hips');
       const torso = mannequin.getObjectByName('torso');
       const neck = mannequin.getObjectByName('neck');
       const head = mannequin.getObjectByName('head');
 
-      const leanFBRad = pose.leanForwardBack * 0.01 * 0.15; // Increased multiplier for higher range
-      const leanLRRad = pose.leanLeftRight * 0.01 * 0.15;
+      // Convert lean angles to radians
+      // rotation.x = forward/back lean (pitch around x-axis)
+      // rotation.z = left/right lean (roll around z-axis)
+      const leanFBRad = THREE.MathUtils.degToRad(pose.leanForwardBack);
+      const leanLRRad = THREE.MathUtils.degToRad(pose.leanLeftRight);
 
-      // Apply 30% lean to hips (lower body)
-      if (hips) {
-        hips.rotation.z = leanFBRad * 0.3;
-        hips.rotation.x = leanLRRad * 0.3;
-        hips.rotation.y = THREE.MathUtils.degToRad(pose.hipRotation);
+      // Torso gets the full lean angle (torso angle from hip)
+      if (torso) {
+        torso.rotation.x = leanFBRad;  // Forward/back
+        torso.rotation.z = leanLRRad;  // Left/right
+        torso.rotation.y = THREE.MathUtils.degToRad(pose.torsoRotation);
       }
 
-      // Apply 70% lean to torso (upper body) - this creates natural bend at waist
-      if (torso) {
-        torso.rotation.z = leanFBRad * 0.7;
-        torso.rotation.x = leanLRRad * 0.7;
-        torso.rotation.y = THREE.MathUtils.degToRad(pose.torsoRotation);
+      // Hips stay level (no lean)
+      if (hips) {
+        hips.rotation.y = THREE.MathUtils.degToRad(pose.hipRotation);
       }
 
       if (neck) neck.rotation.y = THREE.MathUtils.degToRad(pose.neckRotation);
@@ -725,28 +775,43 @@
       if (lElbow) lElbow.rotation.x = THREE.MathUtils.degToRad(-pose.leftElbowBend);
       if (rElbow) rElbow.rotation.x = THREE.MathUtils.degToRad(-pose.rightElbowBend);
 
-      // Hips
+      // Hips and Knees - calculate biomechanically correct angles from stance width
       const lHip = mannequin.getObjectByName('leftHip');
       const rHip = mannequin.getObjectByName('rightHip');
-
-      if (lHip) {
-        lHip.rotation.x = THREE.MathUtils.degToRad(-pose.leftHipPitch);
-        lHip.rotation.z = THREE.MathUtils.degToRad(pose.leftHipRoll);
-      }
-
-      if (rHip) {
-        rHip.rotation.x = THREE.MathUtils.degToRad(-pose.rightHipPitch);
-        rHip.rotation.z = THREE.MathUtils.degToRad(-pose.rightHipRoll);
-      }
-
-      // Knees (positive rotation bends leg forward/up for kicks)
       const lKnee = mannequin.getObjectByName('leftKnee');
       const rKnee = mannequin.getObjectByName('rightKnee');
 
-      if (lKnee) lKnee.rotation.x = THREE.MathUtils.degToRad(pose.leftKneeBend);
-      if (rKnee) rKnee.rotation.x = THREE.MathUtils.degToRad(pose.rightKneeBend);
+      // Calculate biomechanics from stance width
+      const legBio = calculateLegBiomechanics(pose.stanceWidth);
 
-      // Stance width
+      // Apply hip angles - use biomechanically calculated roll unless overridden by kicks
+      const leftHipPitchFinal = pose.leftHipPitch !== 0 ? pose.leftHipPitch : 0;
+      const rightHipPitchFinal = pose.rightHipPitch !== 0 ? pose.rightHipPitch : 0;
+
+      // Use calculated hip roll from stance width unless explicitly set
+      const leftHipRollFinal = pose.leftHipRoll !== 0 ? pose.leftHipRoll : legBio.hipRoll;
+      const rightHipRollFinal = pose.rightHipRoll !== 0 ? pose.rightHipRoll : -legBio.hipRoll;
+
+      if (lHip) {
+        lHip.rotation.x = THREE.MathUtils.degToRad(-leftHipPitchFinal);
+        lHip.rotation.z = THREE.MathUtils.degToRad(leftHipRollFinal);
+      }
+
+      if (rHip) {
+        rHip.rotation.x = THREE.MathUtils.degToRad(-rightHipPitchFinal);
+        rHip.rotation.z = THREE.MathUtils.degToRad(rightHipRollFinal);
+      }
+
+      // Apply knee bend - use biomechanically calculated bend unless overridden
+      // (for kicks, explicit knee bend is set, otherwise use calculated from stance)
+      const leftKneeFinal = pose.leftKneeBend !== 15 ? pose.leftKneeBend : legBio.kneeBend;
+      const rightKneeFinal = pose.rightKneeBend !== 15 ? pose.rightKneeBend : legBio.kneeBend;
+
+      // NOTE: Swapped because controls were reversed
+      if (lKnee) lKnee.rotation.x = THREE.MathUtils.degToRad(rightKneeFinal);
+      if (rKnee) rKnee.rotation.x = THREE.MathUtils.degToRad(leftKneeFinal);
+
+      // Stance width - position the legs
       const leftLeg = mannequin.getObjectByName('leftLeg');
       const rightLeg = mannequin.getObjectByName('rightLeg');
       const stanceM = pose.stanceWidth / 100.0;
@@ -773,8 +838,8 @@
 
     function randomPose() {
       const pose = {
-        leanForwardBack: Math.floor((Math.random() - 0.5) * 80), // Increased from 30
-        leanLeftRight: Math.floor((Math.random() - 0.5) * 60), // Increased from 20
+        leanForwardBack: Math.floor((Math.random() - 0.5) * 90), // -45 to 45 degrees
+        leanLeftRight: Math.floor((Math.random() - 0.5) * 90), // -45 to 45 degrees
         hipRotation: Math.floor((Math.random() - 0.5) * 60),
         torsoRotation: Math.floor((Math.random() - 0.5) * 60),
         neckRotation: Math.floor((Math.random() - 0.5) * 80),
