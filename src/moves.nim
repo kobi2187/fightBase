@@ -225,6 +225,7 @@ proc createJab*(side: string = "left", origin: string = "Boxing"): Move =
       targetLimb: none(LimbType),  # No specific limb targeted
       limbDamage: 0.0
     ),
+    postureChange: none(PostureLevel),  # Jab doesn't change posture
     styleOrigins: @[origin],
     followups: @["cross_right", "hook_left", "step_back"],
     limbsUsed: limbUsed,
@@ -246,15 +247,19 @@ proc createJab*(side: string = "left", origin: string = "Boxing"): Move =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
 
+    # Calculate posture-dependent effectiveness
+    let postureMultiplier = getPostureEffectMultiplier(attacker[].posture, result.category)
+
     # Extend arm temporarily (position change)
     if isLeft:
       extendLimb(attacker[].leftArm)
     else:
       extendLimb(attacker[].rightArm)
 
-    # Apply balance change if hit lands
+    # Apply balance change if hit lands (adjusted by posture)
+    let effectiveBalance = -0.05 * postureMultiplier
     if rand(1.0) > defender[].pos.balance * 0.5:
-      applyBalanceChange(defender[], -0.05)
+      applyBalanceChange(defender[], effectiveBalance)
 
     # Retract
     if isLeft:
@@ -262,11 +267,15 @@ proc createJab*(side: string = "left", origin: string = "Boxing"): Move =
     else:
       retractLimb(attacker[].rightArm)
 
-    # Update physics (position state)
-    attacker[].momentum.linear += result.physicsEffect.linearMomentum
-    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
-    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
-    attacker[].biomech.weightDistribution += result.physicsEffect.weightShift
+    # Update physics (position state) - scaled by posture
+    attacker[].momentum.linear += result.physicsEffect.linearMomentum * postureMultiplier
+    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta * postureMultiplier
+    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta * postureMultiplier
+    attacker[].biomech.weightDistribution += result.physicsEffect.weightShift * postureMultiplier
+
+    # Apply posture change if specified (STATE TRANSITION!)
+    if result.postureChange.isSome:
+      attacker[].posture = result.postureChange.get()
 
     state.sequenceLength += 1
 
@@ -306,6 +315,7 @@ proc createCross*(): Move =
       targetLimb: none(LimbType),
       limbDamage: 0.0
     ),
+    postureChange: none(PostureLevel),
     styleOrigins: @["Boxing", "Karate", "MMA"],
     followups: @["hook_left", "step_back", "clinch_entry"],
     limbsUsed: {RightArm},
@@ -373,6 +383,7 @@ proc createRoundhouseKick*(): Move =
       targetLimb: none(LimbType),
       limbDamage: 0.0
     ),
+    postureChange: none(PostureLevel),
     styleOrigins: @["Muay Thai", "Karate", "Taekwondo"],
     followups: @["step_back", "clinch_entry", "switch_stance"],
     limbsUsed: {RightLeg, LeftLeg},  # Uses both legs (standing leg + kicking leg)
@@ -442,6 +453,7 @@ proc createTeep*(): Move =
       targetLimb: none(LimbType),
       limbDamage: 0.0
     ),
+    postureChange: none(PostureLevel),
     styleOrigins: @["Muay Thai"],
     followups: @["step_forward", "roundhouse_right", "retreat"],
     limbsUsed: {LeftLeg, RightLeg},  # Uses both legs
@@ -508,6 +520,7 @@ proc createClinchEntry*(): Move =
       targetLimb: none(LimbType),
       limbDamage: 0.0
     ),
+    postureChange: none(PostureLevel),
     styleOrigins: @["Muay Thai", "Wrestling", "Judo"],
     followups: @["knee_strike", "throw_hip", "break_clinch"],
     limbsUsed: {LeftArm, RightArm},  # Uses both arms
@@ -567,6 +580,7 @@ proc createHipThrow*(): Move =
       targetLimb: none(LimbType),
       limbDamage: 0.0
     ),
+    postureChange: none(PostureLevel),
     styleOrigins: @["Judo", "Wrestling", "Aikido"],
     followups: @["mount", "side_control", "stand_up"],
     limbsUsed: {LeftArm, RightArm, LeftLeg, RightLeg},  # Uses everything
@@ -642,6 +656,7 @@ proc createStepBack*(): Move =
       targetLimb: none(LimbType),
       limbDamage: 0.0
     ),
+    postureChange: none(PostureLevel),
     styleOrigins: @["Boxing", "Karate", "All"],
     followups: @["jab_left", "teep_front", "circle_left"],
     limbsUsed: {LeftLeg, RightLeg},  # Uses legs for movement
@@ -705,6 +720,7 @@ proc createBlockAndCounter*(): Move =
       targetLimb: none(LimbType),
       limbDamage: 0.0
     ),
+    postureChange: none(PostureLevel),
     styleOrigins: @["Wing Chun", "Krav Maga", "JKD"],
     followups: @["trap_strike", "step_back"],
     limbsUsed: {LeftArm, RightArm},  # Uses both arms simultaneously
@@ -769,6 +785,7 @@ proc createStepAndJab*(): Move =
       targetLimb: none(LimbType),
       limbDamage: 0.0
     ),
+    postureChange: none(PostureLevel),
     styleOrigins: @["Boxing", "Karate", "All"],
     followups: @["cross_right", "step_back"],
     limbsUsed: {LeftArm, LeftLeg, RightLeg},  # Arm + footwork
@@ -796,6 +813,138 @@ proc createStepAndJab*(): Move =
     attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
     attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
 
+    # Apply posture change if specified
+    if result.postureChange.isSome:
+      attacker[].posture = result.postureChange.get()
+
+    state.sequenceLength += 1
+
+# ============================================================================
+# POSTURE-CHANGING MOVES (Examples of state transitions)
+# ============================================================================
+
+proc createDuck*(): Move =
+  ## Duck/slip - changes posture to crouched
+  result = Move(
+    id: "duck_evasion",
+    name: "Duck (Boxing/Muay Thai)",
+    moveType: mtEvasion,
+    category: mcBob,
+    energyCost: 0.08,
+    timeCost: 0.2,  # Quick evasive movement
+    reach: 0.0,
+    height: Mid,
+    angleBias: 0.0,
+    recoveryTime: 0.25,
+    lethalPotential: 0.0,
+    positionShift: PositionDelta(
+      distanceChange: 0.0,
+      angleChange: 0.0,
+      balanceChange: -0.05,  # Slightly less stable while ducking
+      heightChange: -0.4     # Lower body position
+    ),
+    physicsEffect: PhysicsEffect(
+      linearMomentum: 0.0,
+      rotationalMomentum: 0.0,
+      hipRotationDelta: 0.0,
+      torsoRotationDelta: 0.0,
+      weightShift: 0.0,
+      commitmentLevel: 0.2,
+      recoveryFramesOnMiss: 1,
+      recoveryFramesOnHit: 1
+    ),
+    damageEffect: DamageEffect(
+      directDamage: 0.0,
+      fatigueInflicted: 0.0,
+      targetLimb: none(LimbType),
+      limbDamage: 0.0
+    ),
+    postureChange: some(plCrouched),  # KEY: Changes posture to crouched!
+    styleOrigins: @["Boxing", "Muay Thai", "MMA"],
+    followups: @["uppercut", "level_change", "takedown"],
+    limbsUsed: {LeftLeg, RightLeg},  # Uses legs for level change
+    canCombine: true  # Can duck while doing other moves
+  )
+
+  result.prerequisites = proc(state: FightState, who: FighterID): bool =
+    let fighter = if who == FighterA: state.a else: state.b
+    # Can duck from standing or crouched, not from ground/air
+    result = fighter.posture in {plStanding, plCrouched} and fighter.pos.balance >= 0.4
+
+  result.viabilityCheck = moveViability
+
+  result.apply = proc(state: var FightState, who: FighterID) =
+    var fighter = if who == FighterA: addr state.a else: addr state.b
+
+    # Lower body position
+    applyBalanceChange(fighter[], -0.05)
+
+    # STATE TRANSITION: Change posture to crouched
+    if result.postureChange.isSome:
+      fighter[].posture = result.postureChange.get()
+
+    state.sequenceLength += 1
+
+proc createStandUp*(): Move =
+  ## Stand up from crouched/ground - returns to standing posture
+  result = Move(
+    id: "stand_up",
+    name: "Stand Up",
+    moveType: mtPositional,
+    category: mcLevelChange,
+    energyCost: 0.1,
+    timeCost: 0.3,  # Takes time to stand
+    reach: 0.0,
+    height: Mid,
+    angleBias: 0.0,
+    recoveryTime: 0.2,
+    lethalPotential: 0.0,
+    positionShift: PositionDelta(
+      distanceChange: 0.0,
+      angleChange: 0.0,
+      balanceChange: 0.1,   # More stable when standing
+      heightChange: 0.4      # Raise body position
+    ),
+    physicsEffect: PhysicsEffect(
+      linearMomentum: 0.0,
+      rotationalMomentum: 0.0,
+      hipRotationDelta: 0.0,
+      torsoRotationDelta: 0.0,
+      weightShift: 0.0,
+      commitmentLevel: 0.15,
+      recoveryFramesOnMiss: 0,
+      recoveryFramesOnHit: 0
+    ),
+    damageEffect: DamageEffect(
+      directDamage: 0.0,
+      fatigueInflicted: 0.0,
+      targetLimb: none(LimbType),
+      limbDamage: 0.0
+    ),
+    postureChange: some(plStanding),  # KEY: Changes posture to standing!
+    styleOrigins: @["All"],
+    followups: @["jab_left", "step_back", "teep_front"],
+    limbsUsed: {LeftLeg, RightLeg},  # Uses legs to stand
+    canCombine: false
+  )
+
+  result.prerequisites = proc(state: FightState, who: FighterID): bool =
+    let fighter = if who == FighterA: state.a else: state.b
+    # Can stand from crouched or grounded
+    result = fighter.posture in {plCrouched, plGrounded} and fighter.pos.balance >= 0.3
+
+  result.viabilityCheck = moveViability
+
+  result.apply = proc(state: var FightState, who: FighterID) =
+    var fighter = if who == FighterA: addr state.a else: addr state.b
+
+    # Improve balance when standing
+    applyBalanceChange(fighter[], 0.1)
+
+    # STATE TRANSITION: Change posture to standing
+    if result.postureChange.isSome:
+      fighter[].posture = result.postureChange.get()
+
     state.sequenceLength += 1
 
 # ============================================================================
@@ -814,5 +963,9 @@ proc initializeMoves*() =
   registerMove(createStepBack())
   registerMove(createBlockAndCounter())
   registerMove(createStepAndJab())
+
+  # Posture-changing moves (state transitions)
+  registerMove(createDuck())
+  registerMove(createStandUp())
 
   echo "Registered ", ALL_MOVES.len, " moves"
