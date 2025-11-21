@@ -463,17 +463,29 @@
 
     function createMannequin(color) {
       const mannequin = new THREE.Group();
-      // Wooden mannequin appearance
-      const material = new THREE.MeshStandardMaterial({
-        color: color,
-        roughness: 0.8,  // More matte for wood
-        metalness: 0.0   // No metallic shine
+
+      // Create two-tone materials for wooden mannequin (outer lighter, inner darker)
+      const outerColor = new THREE.Color(color).multiplyScalar(1.1); // Lighter outer
+      const innerColor = new THREE.Color(color).multiplyScalar(0.75); // Darker inner
+
+      const outerMaterial = new THREE.MeshStandardMaterial({
+        color: outerColor,
+        roughness: 0.8,
+        metalness: 0.0
+      });
+      const innerMaterial = new THREE.MeshStandardMaterial({
+        color: innerColor,
+        roughness: 0.8,
+        metalness: 0.0
       });
       const jointMaterial = new THREE.MeshStandardMaterial({
         color: color,
         roughness: 0.8,
         metalness: 0.0
       });
+
+      // Default material (will use outer for most parts)
+      const material = outerMaterial;
 
       // Build from ground up using forward kinematics
       // Root is at ground level (y=0)
@@ -494,9 +506,19 @@
       torsoGroup.position.y = 0.55; // Distance from hip center to torso center
       torsoGroup.name = 'torso';
 
-      const torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 0.3), material);
+      // Torso front (chest - lighter)
+      const torsoMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 0.3), outerMaterial);
       torsoMesh.castShadow = true;
       torsoGroup.add(torsoMesh);
+
+      // Torso back (darker)
+      const torsoBack = new THREE.Mesh(
+        new THREE.BoxGeometry(0.48, 0.78, 0.03),
+        innerMaterial
+      );
+      torsoBack.position.z = -0.135;
+      torsoBack.castShadow = true;
+      torsoGroup.add(torsoBack);
 
       hipsGroup.add(torsoGroup); // Torso is child of hips
 
@@ -553,10 +575,20 @@
         shoulderJoint.castShadow = true;
         shoulder.add(shoulderJoint);
 
-        const upperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.4, 8), material);
+        // Upper arm - outer surface (lighter)
+        const upperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.4, 8), outerMaterial);
         upperArm.position.y = -0.2;
         upperArm.castShadow = true;
         shoulder.add(upperArm);
+
+        // Upper arm - inner surface stripe (darker, toward body)
+        const upperArmInner = new THREE.Mesh(
+          new THREE.BoxGeometry(0.11, 0.4, 0.02),
+          innerMaterial
+        );
+        upperArmInner.position.set(-side * 0.01, -0.2, 0);
+        upperArmInner.castShadow = true;
+        shoulder.add(upperArmInner);
 
         const elbow = new THREE.Group();
         elbow.position.y = -0.4;
@@ -567,15 +599,35 @@
         elbowJoint.castShadow = true;
         elbow.add(elbowJoint);
 
-        const lowerArm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.4, 8), material);
+        // Lower arm (forearm) - outer surface (back of hand side - lighter)
+        const lowerArm = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.4, 8), outerMaterial);
         lowerArm.position.y = -0.2;
         lowerArm.castShadow = true;
         elbow.add(lowerArm);
 
-        const hand = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), material);
-        hand.position.y = -0.4;
-        hand.castShadow = true;
-        elbow.add(hand);
+        // Lower arm - inner surface (palm side - darker)
+        const lowerArmInner = new THREE.Mesh(
+          new THREE.BoxGeometry(0.09, 0.4, 0.02),
+          innerMaterial
+        );
+        lowerArmInner.position.set(0, -0.2, side * 0.01);
+        lowerArmInner.castShadow = true;
+        elbow.add(lowerArmInner);
+
+        // Hand - back of hand (lighter) and palm (darker)
+        const handOuter = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), outerMaterial);
+        handOuter.position.y = -0.4;
+        handOuter.castShadow = true;
+        elbow.add(handOuter);
+
+        const handInner = new THREE.Mesh(
+          new THREE.CircleGeometry(0.06, 8),
+          innerMaterial
+        );
+        handInner.position.set(0, -0.4, side * 0.05);
+        handInner.rotation.y = side * Math.PI / 2;
+        handInner.castShadow = true;
+        elbow.add(handInner);
 
         shoulder.add(elbow);
         return shoulder;
@@ -599,10 +651,20 @@
         hipJoint.castShadow = true;
         hip.add(hipJoint);
 
-        const upperLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.6, 8), material);
+        // Upper leg (thigh) - outer surface (lighter)
+        const upperLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.07, 0.6, 8), outerMaterial);
         upperLeg.position.y = -0.3;
         upperLeg.castShadow = true;
         hip.add(upperLeg);
+
+        // Inner thigh (darker, toward groin)
+        const innerThigh = new THREE.Mesh(
+          new THREE.BoxGeometry(0.03, 0.6, 0.14),
+          innerMaterial
+        );
+        innerThigh.position.set(-side * 0.05, -0.3, 0);
+        innerThigh.castShadow = true;
+        hip.add(innerThigh);
 
         const knee = new THREE.Group();
         knee.position.y = -0.6;
@@ -613,16 +675,35 @@
         kneeJoint.castShadow = true;
         knee.add(kneeJoint);
 
-        const lowerLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.6, 8), material);
+        // Lower leg (shin/calf) - outer surface (lighter)
+        const lowerLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.6, 8), outerMaterial);
         lowerLeg.position.y = -0.3;
         lowerLeg.castShadow = true;
         knee.add(lowerLeg);
 
-        const foot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.25), material);
+        // Inner calf (darker)
+        const innerCalf = new THREE.Mesh(
+          new THREE.BoxGeometry(0.03, 0.6, 0.11),
+          innerMaterial
+        );
+        innerCalf.position.set(-side * 0.04, -0.3, 0);
+        innerCalf.castShadow = true;
+        knee.add(innerCalf);
+
+        // Foot - top (lighter) and sole (darker)
+        const foot = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.1, 0.25), outerMaterial);
         foot.position.y = -0.6;
         foot.position.z = 0.08;
         foot.castShadow = true;
         knee.add(foot);
+
+        const footSole = new THREE.Mesh(
+          new THREE.BoxGeometry(0.11, 0.02, 0.24),
+          innerMaterial
+        );
+        footSole.position.set(0, -0.65, 0.08);
+        footSole.castShadow = true;
+        knee.add(footSole);
 
         hip.add(knee);
         legGroup.add(hip);
@@ -944,29 +1025,71 @@
     }
 
     function randomPose() {
+      // Generate more realistic martial arts poses with constrained ranges
+      const isKicking = Math.random() > 0.7; // 30% chance of kick pose
+      const isPunching = !isKicking && Math.random() > 0.5; // 35% chance of punch
+
+      let leftHipPitch = 0, rightHipPitch = 0;
+      let leftHipYaw = 0, rightHipYaw = 0;
+      let leftKneeBend = 15, rightKneeBend = 15;
+
+      // Generate kick if applicable
+      if (isKicking) {
+        const kickingSide = Math.random() > 0.5 ? 'left' : 'right';
+        const kickHeight = Math.floor(30 + Math.random() * 120); // 30-150 degrees
+        const isRoundKick = Math.random() > 0.5;
+
+        if (kickingSide === 'left') {
+          leftHipPitch = kickHeight;
+          leftKneeBend = Math.floor(5 + Math.random() * 30); // Extended leg
+          leftHipYaw = isRoundKick ? Math.floor(-30 - Math.random() * 40) : 0;
+          rightKneeBend = Math.floor(15 + Math.random() * 20); // Standing leg
+        } else {
+          rightHipPitch = kickHeight;
+          rightKneeBend = Math.floor(5 + Math.random() * 30);
+          rightHipYaw = isRoundKick ? Math.floor(-30 - Math.random() * 40) : 0;
+          leftKneeBend = Math.floor(15 + Math.random() * 20);
+        }
+      } else {
+        // Regular stance
+        leftKneeBend = Math.floor(10 + Math.random() * 30);
+        rightKneeBend = Math.floor(10 + Math.random() * 30);
+      }
+
       const pose = {
-        leanForwardBack: Math.floor((Math.random() - 0.5) * 90), // -45 to 45 degrees
-        leanLeftRight: Math.floor((Math.random() - 0.5) * 90), // -45 to 45 degrees
-        hipRotation: Math.floor((Math.random() - 0.5) * 60),
-        torsoRotation: Math.floor((Math.random() - 0.5) * 60),
-        neckRotation: Math.floor((Math.random() - 0.5) * 80),
-        leftShoulderPitch: Math.floor(-30 + Math.random() * 150),
-        leftShoulderRoll: Math.floor(Math.random() * 120),
-        leftShoulderYaw: Math.floor((Math.random() - 0.5) * 120), // -60 to 60
-        rightShoulderPitch: Math.floor(-30 + Math.random() * 150),
-        rightShoulderRoll: Math.floor(Math.random() * 120),
-        rightShoulderYaw: Math.floor((Math.random() - 0.5) * 120),
-        leftElbowBend: Math.floor(Math.random() * 140),
-        rightElbowBend: Math.floor(Math.random() * 140),
-        leftHipPitch: Math.floor(-30 + Math.random() * 230), // -30 to 200 for high kicks
-        leftHipRoll: Math.floor((Math.random() - 0.5) * 60),
-        leftHipYaw: Math.floor((Math.random() - 0.5) * 120),
-        rightHipPitch: Math.floor(-30 + Math.random() * 230), // -30 to 200 for high kicks
-        rightHipRoll: Math.floor((Math.random() - 0.5) * 60),
-        rightHipYaw: Math.floor((Math.random() - 0.5) * 120),
-        leftKneeBend: Math.floor(Math.random() * 120),
-        rightKneeBend: Math.floor(Math.random() * 120),
-        stanceWidth: Math.floor(25 + Math.random() * 50)
+        leanForwardBack: Math.floor(-10 + Math.random() * 35), // -10 to 25 (slight forward lean)
+        leanLeftRight: Math.floor((Math.random() - 0.5) * 30), // -15 to 15
+        hipRotation: Math.floor((Math.random() - 0.5) * 60), // -30 to 30
+        torsoRotation: Math.floor((Math.random() - 0.5) * 60), // -30 to 30
+        neckRotation: Math.floor((Math.random() - 0.5) * 50), // -25 to 25
+
+        // Arm positions - more constrained for realistic guard/punch positions
+        leftShoulderPitch: isPunching && Math.random() > 0.5 ?
+          Math.floor(30 + Math.random() * 40) : Math.floor(-20 + Math.random() * 80),
+        leftShoulderRoll: Math.floor(Math.random() * 60), // 0-60 (not too high)
+        leftShoulderYaw: Math.floor(-40 + Math.random() * 80), // -40 to 40
+
+        rightShoulderPitch: isPunching && Math.random() > 0.5 ?
+          Math.floor(30 + Math.random() * 40) : Math.floor(-20 + Math.random() * 80),
+        rightShoulderRoll: Math.floor(Math.random() * 60),
+        rightShoulderYaw: Math.floor(10 + Math.random() * 50), // 10-60 (rear guard bias)
+
+        leftElbowBend: Math.floor(60 + Math.random() * 70), // 60-130 (keep bent)
+        rightElbowBend: Math.floor(60 + Math.random() * 70),
+
+        // Leg positions
+        leftHipPitch: leftHipPitch,
+        leftHipRoll: Math.floor((Math.random() - 0.5) * 20), // -10 to 10
+        leftHipYaw: leftHipYaw,
+
+        rightHipPitch: rightHipPitch,
+        rightHipRoll: Math.floor((Math.random() - 0.5) * 20),
+        rightHipYaw: rightHipYaw,
+
+        leftKneeBend: leftKneeBend,
+        rightKneeBend: rightKneeBend,
+
+        stanceWidth: Math.floor(30 + Math.random() * 35) // 30-65cm
       };
 
       if (currentFighter === 'A') {
