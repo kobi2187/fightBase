@@ -599,6 +599,9 @@
     }
 
     function readPoseFromUI() {
+      // Preserve the existing pose's yaw values since there are no UI controls yet
+      const currentPose = currentFighter === 'A' ? poseA : poseB;
+
       return {
         leanForwardBack: parseFloat(document.getElementById('lean-fb').value),
         leanLeftRight: parseFloat(document.getElementById('lean-lr').value),
@@ -607,16 +610,18 @@
         neckRotation: parseFloat(document.getElementById('neck-rot').value),
         leftShoulderPitch: parseFloat(document.getElementById('l-shoulder-p').value),
         leftShoulderRoll: parseFloat(document.getElementById('l-shoulder-r').value),
+        leftShoulderYaw: currentPose.leftShoulderYaw || 0,  // Preserve existing value
         rightShoulderPitch: parseFloat(document.getElementById('r-shoulder-p').value),
         rightShoulderRoll: parseFloat(document.getElementById('r-shoulder-r').value),
+        rightShoulderYaw: currentPose.rightShoulderYaw || 45,  // Preserve existing value (default 45 for rear guard)
         leftElbowBend: parseFloat(document.getElementById('l-elbow').value),
         rightElbowBend: parseFloat(document.getElementById('r-elbow').value),
         leftHipPitch: parseFloat(document.getElementById('l-hip-p').value),
         leftHipRoll: parseFloat(document.getElementById('l-hip-r').value),
-        leftHipYaw: 0,  // No UI control yet, default to 0
+        leftHipYaw: currentPose.leftHipYaw || 0,  // Preserve existing value
         rightHipPitch: parseFloat(document.getElementById('r-hip-p').value),
         rightHipRoll: parseFloat(document.getElementById('r-hip-r').value),
-        rightHipYaw: 0,  // No UI control yet, default to 0
+        rightHipYaw: currentPose.rightHipYaw || 0,  // Preserve existing value
         leftKneeBend: parseFloat(document.getElementById('l-knee').value),
         rightKneeBend: parseFloat(document.getElementById('r-knee').value),
         stanceWidth: parseFloat(document.getElementById('stance').value)
