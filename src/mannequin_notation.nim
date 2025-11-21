@@ -16,20 +16,24 @@ type
     neckRotation*: float          # degrees, head turn
 
     # Shoulders (relative to torso)
-    leftShoulderPitch*: float     # degrees, forward/back swing
-    leftShoulderRoll*: float      # degrees, raising arm sideways
+    leftShoulderPitch*: float     # degrees, forward/back swing (X-axis)
+    leftShoulderRoll*: float      # degrees, raising arm sideways (Z-axis)
+    leftShoulderYaw*: float       # degrees, internal/external rotation (Y-axis)
     rightShoulderPitch*: float
     rightShoulderRoll*: float
+    rightShoulderYaw*: float
 
     # Elbows
     leftElbowBend*: float         # degrees, 0 = straight, 150 = fully bent
     rightElbowBend*: float
 
     # Hips (relative to pelvis)
-    leftHipPitch*: float          # degrees, leg forward/back
-    leftHipRoll*: float           # degrees, leg sideways
+    leftHipPitch*: float          # degrees, leg forward/back (X-axis)
+    leftHipRoll*: float           # degrees, leg sideways abduction (Z-axis)
+    leftHipYaw*: float            # degrees, leg rotation inward/outward (Y-axis)
     rightHipPitch*: float
     rightHipRoll*: float
+    rightHipYaw*: float
 
     # Knees
     leftKneeBend*: float          # degrees, 0 = straight, 150 = bent
@@ -45,21 +49,21 @@ type
 ## Fighter format: lean.rotation.shoulders.elbows.hips.knees.stance
 ##   lean: fb,lr (forward-back in cm, left-right in cm)
 ##   rotation: hip,torso,neck (all in degrees)
-##   shoulders: lp,lr,rp,rr (left pitch/roll, right pitch/roll)
+##   shoulders: lp,lr,ly,rp,rr,ry (left pitch/roll/yaw, right pitch/roll/yaw)
 ##   elbows: l,r (left bend, right bend in degrees)
-##   hips: lp,lr,rp,rr (left pitch/roll, right pitch/roll)
+##   hips: lp,lr,ly,rp,rr,ry (left pitch/roll/yaw, right pitch/roll/yaw)
 ##   knees: l,r (left bend, right bend in degrees)
 ##   stance: width,facing (stance width in cm, facing angle in degrees)
 ##
 ## Example:
-## 5,0.10,5,2.20,10,25,15.90,95.0,0,5,0.15,20.45,90.30,0,90
+## 5,0.10,5,2.20,10,25,0,15,30,0.90,95.0,0,5,0,0,5,0,0.15,20.45,90.30,0,90
 ##
 ## Decoded:
 ##   Lean: 5cm forward, 0cm sideways
 ##   Rotation: 10° hip, 5° torso, 2° neck
-##   Shoulders: L(20° pitch, 10° roll) R(25° pitch, 15° roll)
+##   Shoulders: L(20° pitch, 10° roll, 25° yaw) R(0° pitch, 15° roll, 30° yaw)
 ##   Elbows: L(90° bent) R(95° bent)
-##   Hips: L(0° pitch, 0° roll) R(5° pitch, 0° roll)
+##   Hips: L(0° pitch, 5° roll, 0° yaw) R(0° pitch, 5° roll, 0° yaw)
 ##   Knees: L(15° bent) R(20° bent)
 ##   Stance: 45cm width, facing 90°
 
@@ -67,11 +71,11 @@ proc poseToMPN*(pose: MannequinPose): string =
   ## Convert pose to compact MPN notation
   result = fmt"{pose.leanForwardBack:.0f},{pose.leanLeftRight:.0f}."  # lean
   result.add fmt"{pose.hipRotation:.0f},{pose.torsoRotation:.0f},{pose.neckRotation:.0f}."  # rotation
-  result.add fmt"{pose.leftShoulderPitch:.0f},{pose.leftShoulderRoll:.0f},"
-  result.add fmt"{pose.rightShoulderPitch:.0f},{pose.rightShoulderRoll:.0f}."  # shoulders
+  result.add fmt"{pose.leftShoulderPitch:.0f},{pose.leftShoulderRoll:.0f},{pose.leftShoulderYaw:.0f},"
+  result.add fmt"{pose.rightShoulderPitch:.0f},{pose.rightShoulderRoll:.0f},{pose.rightShoulderYaw:.0f}."  # shoulders
   result.add fmt"{pose.leftElbowBend:.0f},{pose.rightElbowBend:.0f}."  # elbows
-  result.add fmt"{pose.leftHipPitch:.0f},{pose.leftHipRoll:.0f},"
-  result.add fmt"{pose.rightHipPitch:.0f},{pose.rightHipRoll:.0f}."  # hips
+  result.add fmt"{pose.leftHipPitch:.0f},{pose.leftHipRoll:.0f},{pose.leftHipYaw:.0f},"
+  result.add fmt"{pose.rightHipPitch:.0f},{pose.rightHipRoll:.0f},{pose.rightHipYaw:.0f}."  # hips
   result.add fmt"{pose.leftKneeBend:.0f},{pose.rightKneeBend:.0f}."  # knees
   result.add fmt"{pose.stanceWidth*100:.0f},{pose.facingAngle:.0f}"  # stance (convert m to cm)
 
@@ -96,8 +100,10 @@ proc mpnToPose*(mpn: string): MannequinPose =
   let shoulderParts = parts[2].split(',')
   result.leftShoulderPitch = parseFloat(shoulderParts[0])
   result.leftShoulderRoll = parseFloat(shoulderParts[1])
-  result.rightShoulderPitch = parseFloat(shoulderParts[2])
-  result.rightShoulderRoll = parseFloat(shoulderParts[3])
+  result.leftShoulderYaw = parseFloat(shoulderParts[2])
+  result.rightShoulderPitch = parseFloat(shoulderParts[3])
+  result.rightShoulderRoll = parseFloat(shoulderParts[4])
+  result.rightShoulderYaw = parseFloat(shoulderParts[5])
 
   # Elbows
   let elbowParts = parts[3].split(',')
@@ -108,8 +114,10 @@ proc mpnToPose*(mpn: string): MannequinPose =
   let hipParts = parts[4].split(',')
   result.leftHipPitch = parseFloat(hipParts[0])
   result.leftHipRoll = parseFloat(hipParts[1])
-  result.rightHipPitch = parseFloat(hipParts[2])
-  result.rightHipRoll = parseFloat(hipParts[3])
+  result.leftHipYaw = parseFloat(hipParts[2])
+  result.rightHipPitch = parseFloat(hipParts[3])
+  result.rightHipRoll = parseFloat(hipParts[4])
+  result.rightHipYaw = parseFloat(hipParts[5])
 
   # Knees
   let kneeParts = parts[5].split(',')
@@ -187,19 +195,23 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
 
   # Left shoulder
   if fighter.leftArm.extended:
-    result.leftShoulderPitch = -30.0   # Forward punch
-    result.leftShoulderRoll = 10.0
+    result.leftShoulderPitch = -30.0   # Forward punch (X-axis)
+    result.leftShoulderRoll = 10.0     # Slight raise (Z-axis)
+    result.leftShoulderYaw = 0.0       # No rotation for straight punch (Y-axis)
   else:
     result.leftShoulderPitch = guardHeight
     result.leftShoulderRoll = 5.0
+    result.leftShoulderYaw = 0.0       # Neutral guard
 
   # Right shoulder
   if fighter.rightArm.extended:
     result.rightShoulderPitch = -30.0
     result.rightShoulderRoll = 10.0
+    result.rightShoulderYaw = 0.0
   else:
     result.rightShoulderPitch = guardHeight
     result.rightShoulderRoll = 5.0
+    result.rightShoulderYaw = 45.0     # Rear guard rotated to protect jaw
 
   # Elbows - extended = straight, guard = bent
   result.leftElbowBend = if fighter.leftArm.extended: 10.0 else: 90.0
@@ -240,6 +252,10 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
   result.leftHipRoll = legBio.hipAbduction
   result.rightHipRoll = legBio.hipAbduction
 
+  # Default: no yaw rotation (neutral leg alignment)
+  result.leftHipYaw = 0.0
+  result.rightHipYaw = 0.0
+
   # Base knee bend from biomechanics
   result.leftKneeBend = legBio.kneeBend
   result.rightKneeBend = legBio.kneeBend
@@ -251,13 +267,15 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
 
   # Leg extension for kicks - override with explicit angles
   if fighter.leftLeg.extended:
-    result.leftHipPitch = 45.0      # Lift leg forward
+    result.leftHipPitch = 45.0      # Lift leg forward (X-axis)
     result.leftKneeBend = 30.0      # Partially extended
-    result.leftHipRoll = 20.0       # Leg rotation for round kick
+    result.leftHipRoll = 20.0       # Abduction for side/round kick (Z-axis)
+    result.leftHipYaw = 45.0        # Rotation inward for round kick (Y-axis)
   if fighter.rightLeg.extended:
     result.rightHipPitch = 45.0
     result.rightKneeBend = 30.0
     result.rightHipRoll = 20.0
+    result.rightHipYaw = -45.0      # Negative = rotate inward (mirror of left)
 
   # Facing angle (simplified - could be derived from pos.facing)
   result.facingAngle = 90.0  # Facing opponent
@@ -272,14 +290,18 @@ proc createNeutralPose*(): MannequinPose =
     neckRotation: 0.0,
     leftShoulderPitch: 20.0,   # Guard position
     leftShoulderRoll: 5.0,
+    leftShoulderYaw: 0.0,      # Neutral (lead hand)
     rightShoulderPitch: 20.0,
     rightShoulderRoll: 5.0,
+    rightShoulderYaw: 45.0,    # Rotated (rear guard protects jaw)
     leftElbowBend: 90.0,       # Bent at guard
     rightElbowBend: 90.0,
     leftHipPitch: 10.0,        # Orthodox stance
     leftHipRoll: 0.0,
+    leftHipYaw: 0.0,           # No rotation
     rightHipPitch: -5.0,
     rightHipRoll: 0.0,
+    rightHipYaw: 0.0,
     leftKneeBend: 15.0,        # Slight bend
     rightKneeBend: 15.0,
     stanceWidth: 0.40,         # 40cm
@@ -302,10 +324,11 @@ proc createRoundKickPose*(): MannequinPose =
   ## Create pose during round kick
   result = createNeutralPose()
   result.leanLeftRight = -15.0           # Leaning away from kick
-  result.hipRotation = 60.0              # Heavy rotation
+  result.hipRotation = 60.0              # Heavy hip rotation
   result.torsoRotation = 30.0
-  result.rightHipPitch = 80.0            # Right leg high and forward
-  result.rightHipRoll = 45.0             # Leg out to side
+  result.rightHipPitch = 80.0            # Right leg high (X-axis)
+  result.rightHipRoll = 45.0             # Leg abducted to side (Z-axis)
+  result.rightHipYaw = -60.0             # Leg rotates inward (Y-axis) - KEY for round kick!
   result.rightKneeBend = 40.0            # Partially bent
   result.leftKneeBend = 25.0             # Standing leg bent for balance
   result.stanceWidth = 0.15              # Narrow (one leg up)
