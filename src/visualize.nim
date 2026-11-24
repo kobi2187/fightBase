@@ -6,8 +6,9 @@ import fight_notation
 import simulator
 import moves
 import general_moves
+import constraints
 import state_storage
-import std/[strformat, strutils, os]
+import std/[strformat, strutils, os, random, options]
 
 proc clearScreen() =
   when defined(windows):
@@ -52,19 +53,19 @@ proc visualizeFight*(stepByStep: bool = true, maxMoves: int = 50) =
     if stepByStep:
       clearScreen()
 
-    echo fmt"\n{'═'.repeat(60)}"
+    echo "\n" & "═".repeat(60)
     echo fmt" MOVE {moveCount + 1} - Fighter {currentFighter}'s turn"
-    echo '═'.repeat(60)
+    echo "═".repeat(60)
 
     # Get viable moves
-    let viable = viableMoves(state, currentFighter)
+    let viable = viableMoves(state.position, currentFighter)
 
     if viable.len == 0:
       echo "\n⚠️  NO VIABLE MOVES - Unknown state reached!"
       echo toVisualBoard(state, currentFighter)
       break
 
-    echo fmt"\nViable moves: {viable.len}"
+    echo "\n" & fmt"Viable moves: {viable.len}"
     for i, move in viable:
       if i < 5:  # Show first 5
         let exposure = fmt"{int(move.exposureRisk * 100)}%"
@@ -93,25 +94,28 @@ proc visualizeFight*(stepByStep: bool = true, maxMoves: int = 50) =
       break
 
     # Show selected sequence
-    echo fmt"\n✓ Selected sequence ({selectedMoves.len} moves):"
+    echo "\n" & fmt"✓ Selected sequence ({selectedMoves.len} moves):"
     for move in selectedMoves:
       let targets = if move.targets.len > 0: move.targets.join(", ") else: "none"
       echo fmt"  → {move.name} [targets: {targets}]"
 
-    echo fmt"\n  Time: {actionSeq.totalTimeCost:.2f}s, Energy: {int(actionSeq.totalEnergyCost*100)}%"
+    echo "\n" & fmt"  Time: {actionSeq.totalTimeCost:.2f}s, Energy: {int(actionSeq.totalEnergyCost*100)}%"
 
     # Apply moves
     for move in selectedMoves:
-      move.apply(state, currentFighter)
+      move.apply(state.position, currentFighter)
+      state.applyOverlayEffects(currentFighter, move)
 
     # Update state
     inc moveCount
-    state.sequenceLength = moveCount
+    state.position.sequenceLength = moveCount
 
     # Check terminal
-    if isTerminalPosition(state):
+    if isTerminalWithOverlays(state.position, state.overlayA, state.overlayB):
       echo "\n🏁 TERMINAL POSITION REACHED!"
-      let winner = determineWinner(state)
+      let winner = determineWinnerWithOverlays(state.position, state.overlayA, state.overlayB)
+      state.position.terminal = true
+      state.position.winner = some(winner)
       echo fmt"   Winner: Fighter {winner}"
       echo toVisualBoard(state, currentFighter)
       break
@@ -129,14 +133,14 @@ proc visualizeFight*(stepByStep: bool = true, maxMoves: int = 50) =
     else:
       sleep(500)  # 500ms delay
 
-  echo "\n" & '═'.repeat(60)
+  echo "\n" & "═".repeat(60)
   echo " FIGHT COMPLETE"
-  echo '═'.repeat(60)
+  echo "═".repeat(60)
   echo fmt"Total moves: {moveCount}"
   echo fmt"Final state: {toCompactBoard(state)}"
 
-  if state.terminal:
-    echo fmt"Result: Fighter {state.winner.get()} wins!"
+  if state.position.terminal:
+    echo fmt"Result: Fighter {state.position.winner.get()} wins!"
   else:
     echo "Result: Fight limit reached"
 
@@ -148,7 +152,7 @@ proc batchVisualize*(numFights: int = 5) =
   var results: seq[tuple[moves: int, winner: Option[FighterID], reason: string]] = @[]
 
   for i in 1..numFights:
-    echo fmt"\n=== Fight {i}/{numFights} ==="
+    echo "\n" & fmt"=== Fight {i}/{numFights} ==="
 
     let config = SimulationConfig(
       maxSequenceLength: 100,
@@ -169,9 +173,9 @@ proc batchVisualize*(numFights: int = 5) =
     echo fmt"  Result: {reason}"
     echo fmt"  Final: {toCompactBoard(result.finalState)}"
 
-  echo "\n" & '═'.repeat(60)
+  echo "\n" & "═".repeat(60)
   echo " BATCH SUMMARY"
-  echo '═'.repeat(60)
+  echo "═".repeat(60)
 
   var totalMoves = 0
   var aWins = 0

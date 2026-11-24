@@ -193,7 +193,10 @@ proc getColorForDamage(damage: float, fatigue: float): string =
 proc generateSVG*(fpnString: string): string =
   ## Generate complete SVG from FPN string
 
-  let (state, turn) = fromFPN(fpnString)
+  let parsed = fromFPN(fpnString)
+  let state = parsed.state
+  let turn = parsed.turn
+  let overlays = [parsed.overlayA, parsed.overlayB]   # fatigue/damage (runtime overlays)
 
   # Calculate figure positions
   let fighterAX = CANVAS_WIDTH * 0.25
@@ -202,17 +205,17 @@ proc generateSVG*(fpnString: string): string =
   let figA = calculateStickFigure(state.a, fighterAX, facingRight = true)
   let figB = calculateStickFigure(state.b, fighterBX, facingRight = false)
 
-  let colorA = getColorForDamage(state.a.damage, state.a.fatigue)
-  let colorB = getColorForDamage(state.b.damage, state.b.fatigue)
+  let colorA = getColorForDamage(overlays[0].damage, overlays[0].fatigue)
+  let colorB = getColorForDamage(overlays[1].damage, overlays[1].fatigue)
 
   # Start SVG
   result = fmt"""<?xml version="1.0" encoding="UTF-8"?>
-<svg width="{CANVAS_WIDTH:.0f}" height="{CANVAS_HEIGHT:.0f}" xmlns="http://www.w3.org/2000/svg">
+<svg width="{int(CANVAS_WIDTH)}" height="{int(CANVAS_HEIGHT)}" xmlns="http://www.w3.org/2000/svg">
   <!-- Background -->
-  <rect width="{CANVAS_WIDTH:.0f}" height="{CANVAS_HEIGHT:.0f}" fill="#f5f5f5"/>
+  <rect width="{int(CANVAS_WIDTH)}" height="{int(CANVAS_HEIGHT)}" fill="#f5f5f5"/>
 
   <!-- Ground line -->
-  <line x1="0" y1="{CANVAS_HEIGHT * 0.7:.1f}" x2="{CANVAS_WIDTH:.0f}" y2="{CANVAS_HEIGHT * 0.7:.1f}" stroke="#999" stroke-width="2"/>
+  <line x1="0" y1="{CANVAS_HEIGHT * 0.7:.1f}" x2="{int(CANVAS_WIDTH)}" y2="{CANVAS_HEIGHT * 0.7:.1f}" stroke="#999" stroke-width="2"/>
 
   <!-- Distance indicator -->
 """
@@ -229,19 +232,19 @@ proc generateSVG*(fpnString: string): string =
   result.add("  " & svgLine(figA.torso, figA.hips, colorA) & "\n")
 
   # Arms
-  result.add("  " & svgLine(figA.leftShoulder, figA.leftElbow, colorA, 2.5, state.a.leftArm.damaged > 0.5) & "\n")
-  result.add("  " & svgLine(figA.leftElbow, figA.leftHand, colorA, 2.5, state.a.leftArm.damaged > 0.5) & "\n")
-  result.add("  " & svgLine(figA.rightShoulder, figA.rightElbow, colorA, 2.5, state.a.rightArm.damaged > 0.5) & "\n")
-  result.add("  " & svgLine(figA.rightElbow, figA.rightHand, colorA, 2.5, state.a.rightArm.damaged > 0.5) & "\n")
+  result.add("  " & svgLine(figA.leftShoulder, figA.leftElbow, colorA, 2.5, overlays[0].leftArmDamage > 0.5) & "\n")
+  result.add("  " & svgLine(figA.leftElbow, figA.leftHand, colorA, 2.5, overlays[0].leftArmDamage > 0.5) & "\n")
+  result.add("  " & svgLine(figA.rightShoulder, figA.rightElbow, colorA, 2.5, overlays[0].rightArmDamage > 0.5) & "\n")
+  result.add("  " & svgLine(figA.rightElbow, figA.rightHand, colorA, 2.5, overlays[0].rightArmDamage > 0.5) & "\n")
 
   # Legs
-  result.add("  " & svgLine(figA.hips, figA.leftKnee, colorA, 3.0, state.a.leftLeg.damaged > 0.5) & "\n")
-  result.add("  " & svgLine(figA.leftKnee, figA.leftFoot, colorA, 3.0, state.a.leftLeg.damaged > 0.5) & "\n")
-  result.add("  " & svgLine(figA.hips, figA.rightKnee, colorA, 3.0, state.a.rightLeg.damaged > 0.5) & "\n")
-  result.add("  " & svgLine(figA.rightKnee, figA.rightFoot, colorA, 3.0, state.a.rightLeg.damaged > 0.5) & "\n")
+  result.add("  " & svgLine(figA.hips, figA.leftKnee, colorA, 3.0, overlays[0].leftLegDamage > 0.5) & "\n")
+  result.add("  " & svgLine(figA.leftKnee, figA.leftFoot, colorA, 3.0, overlays[0].leftLegDamage > 0.5) & "\n")
+  result.add("  " & svgLine(figA.hips, figA.rightKnee, colorA, 3.0, overlays[0].rightLegDamage > 0.5) & "\n")
+  result.add("  " & svgLine(figA.rightKnee, figA.rightFoot, colorA, 3.0, overlays[0].rightLegDamage > 0.5) & "\n")
 
   # Head
-  let headFillA = if state.a.damage > 0.5: "#ffcccc" else: "white"
+  let headFillA = if overlays[0].damage > 0.5: "#ffcccc" else: "white"
   result.add("  " & svgCircle(figA.head, HEAD_RADIUS, colorA, headFillA) & "\n")
 
   # Fighter B
@@ -250,19 +253,19 @@ proc generateSVG*(fpnString: string): string =
   result.add("  " & svgLine(figB.torso, figB.hips, colorB) & "\n")
 
   # Arms
-  result.add("  " & svgLine(figB.leftShoulder, figB.leftElbow, colorB, 2.5, state.b.leftArm.damaged > 0.5) & "\n")
-  result.add("  " & svgLine(figB.leftElbow, figB.leftHand, colorB, 2.5, state.b.leftArm.damaged > 0.5) & "\n")
-  result.add("  " & svgLine(figB.rightShoulder, figB.rightElbow, colorB, 2.5, state.b.rightArm.damaged > 0.5) & "\n")
-  result.add("  " & svgLine(figB.rightElbow, figB.rightHand, colorB, 2.5, state.b.rightArm.damaged > 0.5) & "\n")
+  result.add("  " & svgLine(figB.leftShoulder, figB.leftElbow, colorB, 2.5, overlays[1].leftArmDamage > 0.5) & "\n")
+  result.add("  " & svgLine(figB.leftElbow, figB.leftHand, colorB, 2.5, overlays[1].leftArmDamage > 0.5) & "\n")
+  result.add("  " & svgLine(figB.rightShoulder, figB.rightElbow, colorB, 2.5, overlays[1].rightArmDamage > 0.5) & "\n")
+  result.add("  " & svgLine(figB.rightElbow, figB.rightHand, colorB, 2.5, overlays[1].rightArmDamage > 0.5) & "\n")
 
   # Legs
-  result.add("  " & svgLine(figB.hips, figB.leftKnee, colorB, 3.0, state.b.leftLeg.damaged > 0.5) & "\n")
-  result.add("  " & svgLine(figB.leftKnee, figB.leftFoot, colorB, 3.0, state.b.leftLeg.damaged > 0.5) & "\n")
-  result.add("  " & svgLine(figB.hips, figB.rightKnee, colorB, 3.0, state.b.rightLeg.damaged > 0.5) & "\n")
-  result.add("  " & svgLine(figB.rightKnee, figB.rightFoot, colorB, 3.0, state.b.rightLeg.damaged > 0.5) & "\n")
+  result.add("  " & svgLine(figB.hips, figB.leftKnee, colorB, 3.0, overlays[1].leftLegDamage > 0.5) & "\n")
+  result.add("  " & svgLine(figB.leftKnee, figB.leftFoot, colorB, 3.0, overlays[1].leftLegDamage > 0.5) & "\n")
+  result.add("  " & svgLine(figB.hips, figB.rightKnee, colorB, 3.0, overlays[1].rightLegDamage > 0.5) & "\n")
+  result.add("  " & svgLine(figB.rightKnee, figB.rightFoot, colorB, 3.0, overlays[1].rightLegDamage > 0.5) & "\n")
 
   # Head
-  let headFillB = if state.b.damage > 0.5: "#ffcccc" else: "white"
+  let headFillB = if overlays[1].damage > 0.5: "#ffcccc" else: "white"
   result.add("  " & svgCircle(figB.head, HEAD_RADIUS, colorB, headFillB) & "\n")
 
   # Status info
@@ -270,15 +273,15 @@ proc generateSVG*(fpnString: string): string =
 
   # Fighter A stats
   let balA = int(state.a.pos.balance * 100)
-  let fatA = int(state.a.fatigue * 100)
-  let dmgA = int(state.a.damage * 100)
+  let fatA = int(overlays[0].fatigue * 100)
+  let dmgA = int(overlays[0].damage * 100)
   result.add(fmt"""  <text x="{fighterAX:.1f}" y="30" text-anchor="middle" font-family="monospace" font-size="12" fill="{colorA}">Fighter A</text>""" & "\n")
   result.add(fmt"""  <text x="{fighterAX:.1f}" y="45" text-anchor="middle" font-family="monospace" font-size="10" fill="{colorA}">Bal:{balA}% Fat:{fatA}% Dmg:{dmgA}%</text>""" & "\n")
 
   # Fighter B stats
   let balB = int(state.b.pos.balance * 100)
-  let fatB = int(state.b.fatigue * 100)
-  let dmgB = int(state.b.damage * 100)
+  let fatB = int(overlays[1].fatigue * 100)
+  let dmgB = int(overlays[1].damage * 100)
   result.add(fmt"""  <text x="{fighterBX:.1f}" y="30" text-anchor="middle" font-family="monospace" font-size="12" fill="{colorB}">Fighter B</text>""" & "\n")
   result.add(fmt"""  <text x="{fighterBX:.1f}" y="45" text-anchor="middle" font-family="monospace" font-size="10" fill="{colorB}">Bal:{balB}% Fat:{fatB}% Dmg:{dmgB}%</text>""" & "\n")
 

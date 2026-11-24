@@ -43,6 +43,27 @@ proc getOpponentOverlay*(state: var RuntimeFightState, who: FighterID): var Runt
 # Initial state creation
 # ============================================================================
 
+proc applyMoveToOverlays(attacker, defender: var RuntimeOverlay, move: Move) =
+  attacker.fatigue = min(1.0, attacker.fatigue + move.energyCost)
+  let e = move.damageEffect
+  if e.directDamage > 0:
+    defender.damage = min(1.0, defender.damage + e.directDamage)
+  if e.fatigueInflicted > 0:
+    defender.fatigue = min(1.0, defender.fatigue + e.fatigueInflicted)
+  if e.targetLimb.isSome:
+    case e.targetLimb.get
+    of LeftArm: defender.leftArmDamage = min(1.0, defender.leftArmDamage + e.limbDamage)
+    of RightArm: defender.rightArmDamage = min(1.0, defender.rightArmDamage + e.limbDamage)
+    of LeftLeg: defender.leftLegDamage = min(1.0, defender.leftLegDamage + e.limbDamage)
+    of RightLeg: defender.rightLegDamage = min(1.0, defender.rightLegDamage + e.limbDamage)
+
+proc applyOverlayEffects*(state: var RuntimeFightState, who: FighterID, move: Move) =
+  ## Charge the move's energy to the mover and apply its damage effects to
+  ## the opponent. Mutates the state's overlays in place (binding the result
+  ## of `getOverlay` to a `var` would only change a copy).
+  if who == FighterA: applyMoveToOverlays(state.overlayA, state.overlayB, move)
+  else: applyMoveToOverlays(state.overlayB, state.overlayA, move)
+
 proc createInitialState*(): RuntimeFightState =
   ## Create a standard initial fighting position
   let position = FightState(
@@ -182,7 +203,7 @@ proc simulateFight*(config: SimulationConfig, db: StateDB = nil): SimulationResu
         if turnMoveCount == 0:
           # Couldn't even start a turn - unknown state
           if config.verbose:
-            echo fmt"\n[!] Unknown state reached at move {moveCount}"
+            echo "\n" & fmt"[!] Unknown state reached at move {moveCount}"
             echo toAnalysisStr(state.position)
 
           if db != nil and config.logUnknownStates:
@@ -213,7 +234,7 @@ proc simulateFight*(config: SimulationConfig, db: StateDB = nil): SimulationResu
 
       if config.verbose:
         if turnMoveCount == 1:
-          echo fmt"\n[{moveCount}] {currentFighter}:"
+          echo "\n" & fmt"[{moveCount}] {currentFighter}:"
         echo fmt"  → {selectedMove.name} (time: {selectedMove.timeCost:.2f}s, energy: {selectedMove.energyCost:.2f})"
 
       # Store old hash for first move of turn
@@ -222,33 +243,8 @@ proc simulateFight*(config: SimulationConfig, db: StateDB = nil): SimulationResu
       # Apply move to position
       selectedMove.apply(state.position, currentFighter)
 
-      # Apply overlay effects
-      var attackerOverlay = state.getOverlay(currentFighter)
-      var defenderOverlay = state.getOpponentOverlay(currentFighter)
-
-      # Increase attacker fatigue
-      attackerOverlay.fatigue = min(1.0, attackerOverlay.fatigue + selectedMove.energyCost)
-
-      # Apply damage to defender if applicable
-      if selectedMove.damageEffect.directDamage > 0:
-        defenderOverlay.damage = min(1.0, defenderOverlay.damage + selectedMove.damageEffect.directDamage)
-
-      # Apply fatigue to defender
-      if selectedMove.damageEffect.fatigueInflicted > 0:
-        defenderOverlay.fatigue = min(1.0, defenderOverlay.fatigue + selectedMove.damageEffect.fatigueInflicted)
-
-      # Apply limb damage if applicable
-      if selectedMove.damageEffect.targetLimb.isSome:
-        let limb = selectedMove.damageEffect.targetLimb.get
-        case limb:
-        of LeftArm:
-          defenderOverlay.leftArmDamage = min(1.0, defenderOverlay.leftArmDamage + selectedMove.damageEffect.limbDamage)
-        of RightArm:
-          defenderOverlay.rightArmDamage = min(1.0, defenderOverlay.rightArmDamage + selectedMove.damageEffect.limbDamage)
-        of LeftLeg:
-          defenderOverlay.leftLegDamage = min(1.0, defenderOverlay.leftLegDamage + selectedMove.damageEffect.limbDamage)
-        of RightLeg:
-          defenderOverlay.rightLegDamage = min(1.0, defenderOverlay.rightLegDamage + selectedMove.damageEffect.limbDamage)
+      # Apply overlay effects (fatigue and damage live in the runtime overlays)
+      state.applyOverlayEffects(currentFighter, selectedMove)
 
       # Recompute hash (position only)
       state.position.stateHash = computeStateHash(state.position)
@@ -305,7 +301,7 @@ proc runBatchSimulation*(numFights: int, config: SimulationConfig,
                         dbFilename: string = "fight_states.db"): tuple[
                           completed: int, unknown: int, terminal: int] =
   ## Run many simulations and collect data
-  echo fmt"\n=== Running {numFights} fight simulations ==="
+  echo "\n" & fmt"=== Running {numFights} fight simulations ==="
   echo fmt"Config: maxLength={config.maxSequenceLength}, recordAll={config.recordAllStates}"
 
   let db = openStateDB(dbFilename)

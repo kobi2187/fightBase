@@ -248,6 +248,7 @@ proc createJab*(side: string = "left", origin: string = "Boxing"): Move =
   let moveCategory = result.category  # Capture copy instead of result
   let physicsEff = result.physicsEffect  # Capture physics effect
   let postureChg = result.postureChange  # Capture posture change
+  let spec = result  # immutable copy: closures may not capture `result`
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
@@ -335,6 +336,7 @@ proc createCross*(): Move =
 
   result.viabilityCheck = moveViability
 
+  let spec = result  # immutable copy: closures may not capture `result`
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
@@ -348,9 +350,9 @@ proc createCross*(): Move =
     retractLimb(attacker[].rightArm)
 
     # Update physics
-    attacker[].momentum.linear += result.physicsEffect.linearMomentum
-    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
-    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
+    attacker[].momentum.linear += spec.physicsEffect.linearMomentum
+    attacker[].biomech.hipRotation += spec.physicsEffect.hipRotationDelta
+    attacker[].biomech.torsoRotation += spec.physicsEffect.torsoRotationDelta
 
     state.sequenceLength += 1
 
@@ -405,6 +407,7 @@ proc createRoundhouseKick*(): Move =
 
   result.viabilityCheck = moveViability
 
+  let spec = result  # immutable copy: closures may not capture `result`
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
@@ -419,10 +422,10 @@ proc createRoundhouseKick*(): Move =
     retractLimb(attacker[].rightLeg)
 
     # Update physics
-    attacker[].momentum.linear += result.physicsEffect.linearMomentum
-    attacker[].momentum.rotational += result.physicsEffect.rotationalMomentum
-    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
-    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
+    attacker[].momentum.linear += spec.physicsEffect.linearMomentum
+    attacker[].momentum.rotational += spec.physicsEffect.rotationalMomentum
+    attacker[].biomech.hipRotation += spec.physicsEffect.hipRotationDelta
+    attacker[].biomech.torsoRotation += spec.physicsEffect.torsoRotationDelta
 
     state.sequenceLength += 1
 
@@ -477,6 +480,7 @@ proc createTeep*(): Move =
 
   result.viabilityCheck = moveViability
 
+  let spec = result  # immutable copy: closures may not capture `result`
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
@@ -486,8 +490,8 @@ proc createTeep*(): Move =
     applyBalanceChange(defender[], -0.15)
 
     # Update physics
-    attacker[].momentum.linear += result.physicsEffect.linearMomentum
-    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
+    attacker[].momentum.linear += spec.physicsEffect.linearMomentum
+    attacker[].biomech.hipRotation += spec.physicsEffect.hipRotationDelta
 
     state.sequenceLength += 1
 
@@ -546,6 +550,7 @@ proc createClinchEntry*(): Move =
 
   result.viabilityCheck = moveViability
 
+  let spec = result  # immutable copy: closures may not capture `result`
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
 
@@ -553,7 +558,7 @@ proc createClinchEntry*(): Move =
     state.distance = Contact
 
     # Update physics
-    attacker[].momentum.linear += result.physicsEffect.linearMomentum
+    attacker[].momentum.linear += spec.physicsEffect.linearMomentum
 
     state.sequenceLength += 1
 
@@ -611,6 +616,7 @@ proc createHipThrow*(): Move =
 
   result.viabilityCheck = moveViability
 
+  let spec = result  # immutable copy: closures may not capture `result`
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
@@ -625,9 +631,9 @@ proc createHipThrow*(): Move =
       applyBalanceChange(attacker[], -0.2)
 
     # Update physics
-    attacker[].momentum.rotational += result.physicsEffect.rotationalMomentum
-    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
-    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
+    attacker[].momentum.rotational += spec.physicsEffect.rotationalMomentum
+    attacker[].biomech.hipRotation += spec.physicsEffect.hipRotationDelta
+    attacker[].biomech.torsoRotation += spec.physicsEffect.torsoRotationDelta
 
     state.sequenceLength += 1
 
@@ -686,6 +692,7 @@ proc createStepBack*(): Move =
 
   result.viabilityCheck = moveViability
 
+  let spec = result  # immutable copy: closures may not capture `result`
   result.apply = proc(state: var FightState, who: FighterID) =
     var fighter = if who == FighterA: addr state.a else: addr state.b
 
@@ -693,7 +700,7 @@ proc createStepBack*(): Move =
     applyBalanceChange(fighter[], 0.05)
 
     # Update physics
-    fighter[].momentum.linear += result.physicsEffect.linearMomentum
+    fighter[].momentum.linear += spec.physicsEffect.linearMomentum
 
     state.sequenceLength += 1
 
@@ -752,6 +759,7 @@ proc createBlockAndCounter*(): Move =
 
   result.viabilityCheck = moveViability
 
+  let spec = result  # immutable copy: closures may not capture `result`
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
@@ -762,9 +770,9 @@ proc createBlockAndCounter*(): Move =
       applyBalanceChange(defender[], -0.08)
 
     # Update physics
-    attacker[].momentum.linear += result.physicsEffect.linearMomentum
-    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
-    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
+    attacker[].momentum.linear += spec.physicsEffect.linearMomentum
+    attacker[].biomech.hipRotation += spec.physicsEffect.hipRotationDelta
+    attacker[].biomech.torsoRotation += spec.physicsEffect.torsoRotationDelta
 
     state.sequenceLength += 1
 
@@ -819,6 +827,7 @@ proc createStepAndJab*(): Move =
 
   result.viabilityCheck = moveViability
 
+  let spec = result  # immutable copy: closures may not capture `result`
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
@@ -830,13 +839,13 @@ proc createStepAndJab*(): Move =
       applyBalanceChange(defender[], -0.06)
 
     # Update physics
-    attacker[].momentum.linear += result.physicsEffect.linearMomentum
-    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
-    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
+    attacker[].momentum.linear += spec.physicsEffect.linearMomentum
+    attacker[].biomech.hipRotation += spec.physicsEffect.hipRotationDelta
+    attacker[].biomech.torsoRotation += spec.physicsEffect.torsoRotationDelta
 
     # Apply posture change if specified
-    if result.postureChange.isSome:
-      attacker[].posture = result.postureChange.get()
+    if spec.postureChange.isSome:
+      attacker[].posture = spec.postureChange.get()
 
     state.sequenceLength += 1
 
@@ -897,24 +906,25 @@ proc createSpinningBackfist*(): Move =
 
   result.viabilityCheck = moveViability
 
+  let spec = result  # immutable copy: closures may not capture `result`
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
 
     # Calculate posture-dependent effectiveness
-    let postureMultiplier = getPostureEffectMultiplier(attacker[].posture, result.category)
+    let postureMultiplier = getPostureEffectMultiplier(attacker[].posture, spec.category)
 
     # Attempt hit
     let hitSuccess = rand(1.0) > defender[].pos.balance * 0.55
 
     # Check for overcommitment (do this before state changes)
-    let overcommit = checkOvercommitment(attacker[], not hitSuccess, result.physicsEffect.commitmentLevel)
+    let overcommit = checkOvercommitment(attacker[], not hitSuccess, spec.physicsEffect.commitmentLevel)
 
     if hitSuccess:
       # Hit lands - powerful strike
       applyBalanceChange(defender[], -0.2 * postureMultiplier)
       # Transfer momentum to defender
-      transferMomentum(attacker[], defender[], result.momentumTransfer, true)
+      transferMomentum(attacker[], defender[], spec.momentumTransfer, true)
     else:
       # MISSED - Apply overcommitment penalty
       if overcommit.overcommitted:
@@ -924,14 +934,14 @@ proc createSpinningBackfist*(): Move =
           attacker[].posture = overcommit.postureChange.get()
 
     # Update physics - add rotational momentum
-    attacker[].momentum.linear += result.physicsEffect.linearMomentum * postureMultiplier
-    attacker[].momentum.rotational += result.physicsEffect.rotationalMomentum * postureMultiplier
-    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
-    attacker[].biomech.torsoRotation += result.physicsEffect.torsoRotationDelta
+    attacker[].momentum.linear += spec.physicsEffect.linearMomentum * postureMultiplier
+    attacker[].momentum.rotational += spec.physicsEffect.rotationalMomentum * postureMultiplier
+    attacker[].biomech.hipRotation += spec.physicsEffect.hipRotationDelta
+    attacker[].biomech.torsoRotation += spec.physicsEffect.torsoRotationDelta
 
     # Change to spinning posture (temporarily) if didn't fall
-    if result.postureChange.isSome and not overcommit.postureChange.isSome:
-      attacker[].posture = result.postureChange.get()
+    if spec.postureChange.isSome and not overcommit.postureChange.isSome:
+      attacker[].posture = spec.postureChange.get()
 
     state.sequenceLength += 1
 
@@ -986,12 +996,13 @@ proc createPushKick*(): Move =
 
   result.viabilityCheck = moveViability
 
+  let spec = result  # immutable copy: closures may not capture `result`
   result.apply = proc(state: var FightState, who: FighterID) =
     var attacker = if who == FighterA: addr state.a else: addr state.b
     var defender = if who == FighterA: addr state.b else: addr state.a
 
     # Calculate posture-dependent effectiveness
-    let postureMultiplier = getPostureEffectMultiplier(attacker[].posture, result.category)
+    let postureMultiplier = getPostureEffectMultiplier(attacker[].posture, spec.category)
 
     # Attempt hit
     let hitSuccess = rand(1.0) > defender[].pos.balance * 0.6
@@ -1001,25 +1012,25 @@ proc createPushKick*(): Move =
       applyBalanceChange(defender[], -0.25 * postureMultiplier)
 
       # Transfer momentum - this PUSHES the opponent
-      transferMomentum(attacker[], defender[], result.momentumTransfer, true)
+      transferMomentum(attacker[], defender[], spec.momentumTransfer, true)
 
       # Check if defender gets knocked down
       if defender[].pos.balance < 0.3:
         # Defender falls to ground!
-        if result.defenderPostureChange.isSome:
-          defender[].posture = result.defenderPostureChange.get()
+        if spec.defenderPostureChange.isSome:
+          defender[].posture = spec.defenderPostureChange.get()
 
       # Change distance
       changeDistance(state, 0.6)
     else:
       # Miss - check overcommitment
-      let overcommit = checkOvercommitment(attacker[], true, result.physicsEffect.commitmentLevel)
+      let overcommit = checkOvercommitment(attacker[], true, spec.physicsEffect.commitmentLevel)
       if overcommit.overcommitted:
         applyBalanceChange(attacker[], -overcommit.balanceLoss)
 
     # Update physics
-    attacker[].momentum.linear += result.physicsEffect.linearMomentum * postureMultiplier
-    attacker[].biomech.hipRotation += result.physicsEffect.hipRotationDelta
+    attacker[].momentum.linear += spec.physicsEffect.linearMomentum * postureMultiplier
+    attacker[].biomech.hipRotation += spec.physicsEffect.hipRotationDelta
 
     state.sequenceLength += 1
 
@@ -1079,6 +1090,7 @@ proc createDuck*(): Move =
 
   result.viabilityCheck = moveViability
 
+  let spec = result  # immutable copy: closures may not capture `result`
   result.apply = proc(state: var FightState, who: FighterID) =
     var fighter = if who == FighterA: addr state.a else: addr state.b
 
@@ -1086,8 +1098,8 @@ proc createDuck*(): Move =
     applyBalanceChange(fighter[], -0.05)
 
     # STATE TRANSITION: Change posture to crouched
-    if result.postureChange.isSome:
-      fighter[].posture = result.postureChange.get()
+    if spec.postureChange.isSome:
+      fighter[].posture = spec.postureChange.get()
 
     state.sequenceLength += 1
 
@@ -1143,6 +1155,7 @@ proc createStandUp*(): Move =
 
   result.viabilityCheck = moveViability
 
+  let spec = result  # immutable copy: closures may not capture `result`
   result.apply = proc(state: var FightState, who: FighterID) =
     var fighter = if who == FighterA: addr state.a else: addr state.b
 
@@ -1150,8 +1163,8 @@ proc createStandUp*(): Move =
     applyBalanceChange(fighter[], 0.1)
 
     # STATE TRANSITION: Change posture to standing
-    if result.postureChange.isSome:
-      fighter[].posture = result.postureChange.get()
+    if spec.postureChange.isSome:
+      fighter[].posture = spec.postureChange.get()
 
     state.sequenceLength += 1
 

@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Self-Defense Playbook</title>
+<style>
+:root {
+  --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1f22; --muted: #5d636b; --line: #e2e0da;
+  --accent: #1f5f8b; --accent-soft: #e3eef6; --good: #2e7d4f; --warn: #a86a00; --bad: #b3362d;
+  --bar: #1f5f8b; --bar-soft: #c9dceb;
+  --escape: #2e7d4f; --ko: #3f7fb0; --choke: #7a5aa8; --nofin: #a7a39a; --hurt: #c46a2e; --choked: #b3362d;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171a; --panel: #1c2024; --ink: #e8e6e1; --muted: #a2a7ae; --line: #2d3238;
+    --accent: #7db7e0; --accent-soft: #1f2f3c; --good: #6cc492; --warn: #e0a84a; --bad: #ec7b70;
+    --bar: #7db7e0; --bar-soft: #2a3e4e;
+    --escape: #6cc492; --ko: #7db7e0; --choke: #b79be0; --nofin: #6d6a63; --hurt: #e0955d; --choked: #ec7b70;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171a; --panel: #1c2024; --ink: #e8e6e1; --muted: #a2a7ae; --line: #2d3238;
+  --accent: #7db7e0; --accent-soft: #1f2f3c; --good: #6cc492; --warn: #e0a84a; --bad: #ec7b70;
+  --bar: #7db7e0; --bar-soft: #2a3e4e;
+  --escape: #6cc492; --ko: #7db7e0; --choke: #b79be0; --nofin: #6d6a63; --hurt: #e0955d; --choked: #ec7b70;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header, main { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+header { padding-top: 28px; }
+h1 { font-size: 1.7rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 1.2rem; margin: 32px 0 10px; }
+h3 { font-size: 1rem; margin: 22px 0 8px; }
+p.lede { color: var(--muted); margin: 0 0 14px; max-width: 70ch; }
+.note { background: var(--accent-soft); border-radius: 8px; padding: 10px 14px; font-size: 0.9rem; max-width: 80ch; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0 6px; }
+.tabs button { border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  padding: 6px 14px; border-radius: 999px; cursor: pointer; font: inherit; }
+.tabs button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--panel); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+  cursor: pointer; text-align: left; color: inherit; font: inherit; }
+.card[aria-pressed="true"] { outline: 2px solid var(--accent); }
+.card .t { font-weight: 600; font-size: 0.92rem; }
+.card .v { font-size: 1.35rem; font-variant-numeric: tabular-nums; margin: 4px 0 2px; }
+.card .r { font-size: 0.85rem; color: var(--muted); }
+.badge { display: inline-block; font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; }
+.badge.ok { color: var(--good); } .badge.mid { color: var(--warn); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-top: 14px; }
+.stack { display: flex; height: 14px; border-radius: 7px; overflow: hidden; margin: 8px 0 4px; }
+.stack span { height: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.82rem; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: 0.8rem; }
+td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.barcell { min-width: 120px; }
+.bar { height: 8px; border-radius: 4px; background: var(--bar-soft); position: relative; }
+.bar b { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--bar); }
+.muted { color: var(--muted); }
+ul.lines { padding-left: 18px; margin: 6px 0; }
+.chip { display: inline-block; background: var(--accent-soft); border-radius: 6px; padding: 0 6px; margin: 1px 2px 1px 0; font-size: 0.85rem; }
+footer { max-width: 1100px; margin: 40px auto; padding: 0 16px 40px; color: var(--muted); font-size: 0.85rem; }
+@media (max-width: 600px) { h1 { font-size: 1.35rem; } .card .v { font-size: 1.15rem; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Self-Defense Playbook</h1>
+  <p class="lede">Best responses and combinations for ten common situations, derived from the exact equilibrium of a discrete
+  fight model. Every number is a model output under stated assumptions, not a measurement.</p>
+  <div class="note" id="meta"></div>
+  <div class="tabs" id="attackers" role="group" aria-label="Attacker"></div>
+</header>
+<main>
+  <h2>Situations</h2>
+  <div class="grid" id="cards"></div>
+  <div class="panel" id="detail"></div>
+  <h2>What your weapons are worth</h2>
+  <p class="lede">Remove a target, a way of generating force, or a technique from your arsenal and re-solve every
+  situation: the bar is the average loss in P(safe), in percentage points.</p>
+  <div id="worth"></div>
+  <h2>Glossary</h2>
+  <div class="tablewrap"><table id="glossary"></table></div>
+</main>
+<footer id="foot"></footer>
+<script>
+const DATA = /*__PLAYBOOK_DATA__*/null;
+const $ = (id) => document.getElementById(id);
+const pct = (x) => (100 * x).toFixed(1) + "%";
+const pts = (x) => ((x >= 0 ? "+" : "") + (100 * x).toFixed(1));
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const gloss = Object.fromEntries(DATA.glossary.map((g) => [g.action, g]));
+const name = (a) => `<span title="${esc((gloss[a] || {}).meaning || a)}">${esc(a)}</span>`;
+let attacker = 0, scenario = 0;
+
+function robust(r) {
+  if (!r.checks) return '<span class="badge">not checked</span>';
+  if (r.sameTop === r.checks) return `<span class="badge ok">robust ${r.checks}/${r.checks}</span>`;
+  return `<span class="badge mid">holds ${r.sameTop}/${r.checks}</span>`;
+}
+function bar(v, max) {
+  const w = Math.max(0, Math.min(100, 100 * v / (max || 1)));
+  return `<div class="bar"><b style="width:${w}%"></b></div>`;
+}
+function renderTabs() {
+  $("attackers").innerHTML = DATA.matches.map((m, i) =>
+    `<button aria-pressed="${i === attacker}" data-i="${i}">vs ${esc(m.attacker)}</button>`).join("");
+  $("attackers").querySelectorAll("button").forEach((b) => b.onclick = () => { attacker = +b.dataset.i; render(); });
+}
+function renderCards() {
+  const m = DATA.matches[attacker];
+  $("cards").innerHTML = m.scenarios.map((s, i) => `
+    <button class="card" aria-pressed="${i === scenario}" data-i="${i}">
+      <div class="t">${esc(s.title)}</div>
+      <div class="v">${pct(s.safe)}</div>
+      <div class="r">${esc(s.responses[0].action)} ${robust(s.robustness)}</div>
+    </button>`).join("");
+  $("cards").querySelectorAll(".card").forEach((c) => c.onclick = () => { scenario = +c.dataset.i; render(); });
+}
+function renderDetail() {
+  const m = DATA.matches[attacker], s = m.scenarios[scenario], o = s.outcome;
+  const base = DATA.baseline.scenarios[scenario];
+  const parts = [["escape", o.escape, "you get away"], ["ko", o.incapacitate, "you incapacitate him"],
+    ["choke", o.choke, "you choke him"], ["nofin", o.noFinish, "no finish"],
+    ["hurt", o.incapacitated + o.doubleKO, "you are incapacitated"], ["choked", o.choked, "you are choked"]];
+  const maxResp = Math.max(...s.responses.map((r) => r.expected));
+  let h = `<h3 style="margin-top:0">${esc(s.title)} <span class="muted">vs ${esc(m.attacker)}</span></h3>
+    <p class="muted" style="margin:0">${esc(s.situation)}</p>
+    <p style="margin:10px 0 0"><b>P(safe) ${pct(s.safe)}</b> with optimal play
+    <span class="muted">(untrained vs ${esc(DATA.baseline.attacker)}: ${pct(base.safe)})</span>. ${robust(s.robustness)}</p>
+    <div class="stack">${parts.map(([k, v]) => `<span style="width:${100 * v}%;background:var(--${k})"></span>`).join("")}</div>
+    <div class="legend">${parts.map(([k, v, l]) => `<span><i style="background:var(--${k})"></i>${l} ${pct(v)}</span>`).join("")}</div>`;
+  if (s.robustness.displacedBy.length)
+    h += `<p class="muted" style="font-size:.85rem">Top response changes under: ${s.robustness.displacedBy.map((d) => `${esc(d.perturbation)} → ${esc(d.newTop)}`).join("; ")}</p>`;
+  h += `<h3>Best first responses</h3><div class="tablewrap"><table><tr><th>Response</th><th>Expected</th><th class="barcell"></th><th>If he picks the best reply</th><th>Optimal play uses it</th></tr>`;
+  for (const r of s.responses.slice(0, 10))
+    h += `<tr><td>${name(r.action)} <span class="muted">${esc((gloss[r.action] || {}).meaning || "")}</span></td>
+      <td class="n">${pct(r.expected)}</td><td class="barcell">${bar(r.expected - (s.responses[s.responses.length - 1].expected), maxResp - s.responses[s.responses.length - 1].expected)}</td>
+      <td class="n">${pct(r.guaranteed)}</td><td class="n">${pct(r.mix)}</td></tr>`;
+  h += `</table></div><h3>Answers to his attacks</h3><div class="tablewrap"><table><tr><th>He opens with</th><th>How often</th><th>Your best answers</th><th>Worst answer</th></tr>`;
+  for (const a of s.answers)
+    h += `<tr><td>${name(a.attack)}</td><td class="n">${pct(a.attackerMix)}</td>
+      <td>${a.best.map((b) => `<span class="chip">${name(b.action)} ${pct(b.value)}</span>`).join(" ")}</td>
+      <td class="muted">${name(a.worst.action)} ${pct(a.worst.value)}</td></tr>`;
+  h += `</table></div>`;
+  if (s.lines.length) {
+    h += `<h3>Lines optimal play follows</h3><ul class="lines">`;
+    for (const l of s.lines)
+      h += `<li>${l.actions.map(name).join(" → ")} <span class="muted">· played ${pct(l.prob)} · P(safe) ${pct(l.value)}${l.finishedSafe > 0.005 ? ` · ends it safely ${pct(l.finishedSafe)}` : ""}</span></li>`;
+    h += `</ul>`;
+  }
+  h += `<h3>Combinations</h3><div class="tablewrap"><table><tr><th>Combination</th><th>Source</th><th>Expected</th><th>If he reads it</th><th>Dealt</th><th>Stuns</th><th>Taken</th><th>Executed</th></tr>`;
+  for (const c of s.combos)
+    h += `<tr><td>${c.plan.map(name).join(" → ")}</td><td class="muted">${esc(c.source)}${c.vsAttack ? ` (he opens with ${esc(c.vsAttack)})` : ""}</td>
+      <td class="n">${pct(c.expected)}</td><td class="n">${pct(c.guaranteed)}</td><td class="n">${c.dealt.toFixed(2)}</td>
+      <td class="n">${c.stuns.toFixed(2)}</td><td class="n">${c.taken.toFixed(2)}</td><td class="n">${pct(c.executed)}</td></tr>`;
+  h += `</table></div><p class="muted" style="font-size:.85rem">Dealt / taken: expected damage levels during the combination (${DATA.damageLevels} levels incapacitate). Executed: how often every step was possible in the position it reached.</p>`;
+  $("detail").innerHTML = h;
+}
+function renderWorth() {
+  let h = "";
+  for (const w of DATA.worths) {
+    const max = Math.max(0.0001, ...w.rows.map((r) => -r.mean));
+    h += `<h3>${esc(w.title)} <span class="muted">(${esc(w.defender)} vs ${esc(w.attacker)})</span></h3>`;
+    if (w.hipLoading) {
+      const d = w.hipLoading.on.reduce((a, v, i) => a + (v - w.hipLoading.off[i]), 0) / w.hipLoading.on.length;
+      h += `<p class="muted" style="margin:4px 0 8px">Hip loading: without the need to chain rotations (every rotational strike at full power and speed from either side) your average P(safe) would change by ${pts(-d)} points.</p>`;
+    }
+    h += `<div class="tablewrap"><table><tr><th>Without</th><th>Change</th><th class="barcell"></th></tr>`;
+    for (const r of w.rows)
+      h += `<tr><td>${esc(r.label)}</td><td class="n">${pts(r.mean)}</td><td class="barcell">${bar(-r.mean, max)}</td></tr>`;
+    h += `</table></div>`;
+  }
+  $("worth").innerHTML = h;
+}
+function renderStatic() {
+  $("meta").innerHTML = `Generated ${esc(DATA.generated)}. P(safe) = probability you get away or the attacker is incapacitated or choked,
+    with both sides playing optimally. Each situation was solved exactly (exploitability below ${DATA.matches.map((m) => m.exploitability).reduce((a, b) => Math.max(a, b), 0).toExponential(0)})${DATA.robustnessChecked
+      ? ", and each top response re-checked with every family of assumptions scaled ±25%." : ". Robustness checks were skipped for this build."}`;
+  $("glossary").innerHTML = `<tr><th>Technique</th><th>Meaning</th><th>Force from</th><th>Target</th></tr>` +
+    DATA.glossary.map((g) => `<tr><td>${esc(g.action)}</td><td>${esc(g.meaning)}</td><td class="muted">${esc(g.mechanics)}</td><td class="muted">${esc(g.target)}</td></tr>`).join("");
+  $("foot").textContent = "Generated by fightsolve playbook (src/solver). Model description: docs/SOLVER.md.";
+}
+function render() { renderTabs(); renderCards(); renderDetail(); }
+renderStatic(); render(); renderWorth();
+</script>
+</body>
+</html>
