@@ -4,3 +4,7 @@ nimcache/
 /fight_states.db
 /fight_states.txt
 /.fightsolve-cache/
+
+# test binaries built by nimble test
+/tests/test_*
+!/tests/test_*.nim
