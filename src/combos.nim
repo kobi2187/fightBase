@@ -93,8 +93,7 @@ proc createJabCrossHook*(): Combo =
     result = state.distance in [Short, Medium] and
              fighter.leftArm.free and
              fighter.rightArm.free and
-             fighter.pos.balance > 0.6 and
-             fighter.fatigue < 0.7
+             fighter.pos.balance > 0.6
 
 proc createLowKickCross*(): Combo =
   ## Muay Thai classic - low kick to compromise base, then cross
@@ -135,8 +134,7 @@ proc createLowKickCross*(): Combo =
     result = state.distance in [Short, Medium] and
              fighter.rightLeg.free and
              fighter.rightArm.free and
-             fighter.pos.balance > 0.7 and
-             fighter.fatigue < 0.65
+             fighter.pos.balance > 0.7
 
 proc createParryCounter*(): Combo =
   ## Defensive counter combo - parry their strike, immediately counter

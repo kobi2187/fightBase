@@ -52,7 +52,7 @@ proc createStepForward*(): Move =
   result.prerequisites = proc(state: FightState, who: FighterID): bool =
     let fighter = if who == FighterA: state.a else: state.b
     # Can step if balanced and not too fatigued
-    result = fighter.pos.balance > 0.4 and fighter.fatigue < 0.9
+    result = fighter.pos.balance > 0.4
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var fighter = if who == FighterA: addr state.a else: addr state.b
@@ -62,8 +62,7 @@ proc createStepForward*(): Move =
     fighter.pos.balance = max(0.3, fighter.pos.balance - 0.05)
     # Add momentum
     fighter.momentum.linear += 0.5
-    # Minimal fatigue
-    fighter.fatigue = min(1.0, fighter.fatigue + 0.01)
+    discard  # fatigue: charged from energyCost by the simulator (runtime overlay)
 
 # ============================================================================
 # EVASION MOVES
@@ -120,8 +119,7 @@ proc createSlipLeft*(): Move =
     fighter.biomech.hipRotation -= 10.0
     # Shift weight
     fighter.biomech.weightDistribution -= 0.1
-    # Minimal fatigue
-    fighter.fatigue = min(1.0, fighter.fatigue + 0.005)
+    discard  # fatigue: charged from energyCost by the simulator (runtime overlay)
 
 # ============================================================================
 # DEFLECTION MOVES
@@ -169,14 +167,13 @@ proc createParryLeft*(): Move =
   result.prerequisites = proc(state: FightState, who: FighterID): bool =
     let fighter = if who == FighterA: state.a else: state.b
     # Just need free left arm
-    result = fighter.leftArm.free and not fighter.leftArm.damaged > 0.5
+    result = fighter.leftArm.free
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var fighter = if who == FighterA: addr state.a else: addr state.b
     # Rotate slightly
     fighter.biomech.torsoRotation -= 10.0
-    # Almost no fatigue (efficient)
-    fighter.fatigue = min(1.0, fighter.fatigue + 0.003)
+    discard  # fatigue: charged from energyCost by the simulator (runtime overlay)
 
 # ============================================================================
 # OFFENSIVE MOVES (GENERAL CATEGORIES)
@@ -227,8 +224,7 @@ proc createStraightStrike*(): Move =
     # Need arm free, in range, balanced
     result = fighter.rightArm.free and
              state.distance in [Short, Medium] and
-             fighter.pos.balance > 0.4 and
-             fighter.fatigue < 0.85
+             fighter.pos.balance > 0.4
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var fighter = if who == FighterA: addr state.a else: addr state.b
@@ -241,12 +237,12 @@ proc createStraightStrike*(): Move =
     fighter.biomech.weightDistribution += 0.08
 
     # Fatigue cost
-    fighter.fatigue = min(1.0, fighter.fatigue + 0.08)
+    discard  # fatigue: charged from energyCost by the simulator (runtime overlay)
 
     # Damage opponent (simplified - would check vulnerability system)
     # For now, small chance of effect
     if fighter.pos.balance > 0.7:  # Good strike
-      opponent.damage += 0.02
+      discard  # damage: applied from damageEffect by the simulator (runtime overlay)
       opponent.pos.balance -= 0.05
 
 proc createLowKick*(): Move =
@@ -294,7 +290,6 @@ proc createLowKick*(): Move =
     result = fighter.rightLeg.free and
              state.distance in [Short, Medium] and
              fighter.pos.balance > 0.6 and
-             fighter.fatigue < 0.8 and
              fighter.momentum.rotational.abs < 30.0  # Not already spinning
 
   result.apply = proc(state: var FightState, who: FighterID) =
@@ -312,11 +307,11 @@ proc createLowKick*(): Move =
     fighter.biomech.recoveryFrames = 4
 
     # Fatigue
-    fighter.fatigue = min(1.0, fighter.fatigue + 0.12)
+    discard  # fatigue: charged from energyCost by the simulator (runtime overlay)
 
     # If hits, affects opponent's leg/mobility
     if fighter.pos.balance > 0.6:
-      opponent.damage += 0.04
+      discard  # damage: applied from damageEffect by the simulator (runtime overlay)
       opponent.pos.balance -= 0.1
       # Could set opponent's leg as damaged
 

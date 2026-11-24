@@ -4,6 +4,14 @@
 
 FightBase is a martial arts tablebase generator - a chess-style endgame database for hand-to-hand combat. It systematically explores all possible fight positions to discover effective techniques and underlying martial arts principles.
 
+## Start here
+
+- **[SOLVER.md](./SOLVER.md)**: the exact equilibrium solver (the working form of the tablebase)
+- **[playbook/PLAYBOOK.md](./playbook/PLAYBOOK.md)**: the generated self-defense playbook
+
+The rest of this page documents the original tree generator, which the solver
+supersedes.
+
 ## Quick Start
 
 1. **Read the usage guide**: [GAME_TREE_USAGE.md](./GAME_TREE_USAGE.md)

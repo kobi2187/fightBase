@@ -6,7 +6,7 @@
 ## fallback). Pure saddle points are detected first, which settles most
 ## positions without the LP.
 
-const MaxActions* = 16
+const MaxActions* = 24
 
 type
   Matrix* = array[MaxActions, array[MaxActions, float]]

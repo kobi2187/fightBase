@@ -6,7 +6,8 @@ import fight_types
 import constraints
 import moves
 import tactical
-import std/[tables, strformat, algorithm]
+from game_tree import createInitialState
+import std/[tables, strformat, algorithm, strutils]
 
 type
   MoveVariant* = object
@@ -70,8 +71,7 @@ proc createWingChunStraightPunch*(): Move =
     let fighter = if who == FighterA: state.a else: state.b
     result = fighter.rightArm.free and
              state.distance in [Short, Medium] and
-             fighter.pos.balance > 0.3 and
-             fighter.fatigue < 0.9
+             fighter.pos.balance > 0.3
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var fighter = if who == FighterA: addr state.a else: addr state.b
@@ -80,10 +80,10 @@ proc createWingChunStraightPunch*(): Move =
     fighter.momentum.linear += 0.15
     fighter.biomech.torsoRotation += 5.0
     fighter.biomech.weightDistribution += 0.03
-    fighter.fatigue = min(1.0, fighter.fatigue + 0.05)
+    discard  # fatigue: charged from energyCost by the simulator (runtime overlay)
 
     if fighter.pos.balance > 0.6:
-      opponent.damage += 0.015
+      discard  # damage: applied from damageEffect by the simulator (runtime overlay)
       opponent.pos.balance -= 0.03
 
 proc createBoxingJab*(): Move =
@@ -130,8 +130,7 @@ proc createBoxingJab*(): Move =
     let fighter = if who == FighterA: state.a else: state.b
     result = fighter.leftArm.free and
              state.distance in [Short, Medium] and
-             fighter.pos.balance > 0.4 and
-             fighter.fatigue < 0.85
+             fighter.pos.balance > 0.4
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var fighter = if who == FighterA: addr state.a else: addr state.b
@@ -141,10 +140,10 @@ proc createBoxingJab*(): Move =
     fighter.biomech.hipRotation += 8.0
     fighter.biomech.torsoRotation += 12.0
     fighter.biomech.weightDistribution += 0.08
-    fighter.fatigue = min(1.0, fighter.fatigue + 0.08)
+    discard  # fatigue: charged from energyCost by the simulator (runtime overlay)
 
     if fighter.pos.balance > 0.6:
-      opponent.damage += 0.02
+      discard  # damage: applied from damageEffect by the simulator (runtime overlay)
       opponent.pos.balance -= 0.04
 
 proc createKarateGyakuZuki*(): Move =
@@ -192,7 +191,6 @@ proc createKarateGyakuZuki*(): Move =
     result = fighter.rightArm.free and
              state.distance in [Short, Medium] and
              fighter.pos.balance > 0.6 and    # Needs good balance
-             fighter.fatigue < 0.7 and         # Can't be too tired
              fighter.momentum.rotational.abs < 20.0  # Can't already be rotating
 
   result.apply = proc(state: var FightState, who: FighterID) =
@@ -205,10 +203,10 @@ proc createKarateGyakuZuki*(): Move =
     fighter.biomech.weightDistribution += 0.25
     fighter.biomech.recovering = true
     fighter.biomech.recoveryFrames = 4
-    fighter.fatigue = min(1.0, fighter.fatigue + 0.12)
+    discard  # fatigue: charged from energyCost by the simulator (runtime overlay)
 
     if fighter.pos.balance > 0.7:
-      opponent.damage += 0.04  # Highest damage
+      discard  # damage: applied from damageEffect by the simulator (runtime overlay)
       opponent.pos.balance -= 0.08
 
 # ============================================================================
@@ -259,8 +257,7 @@ proc createMuayThaiRoundKick*(): Move =
     let fighter = if who == FighterA: state.a else: state.b
     result = fighter.rightLeg.free and
              state.distance in [Short, Medium] and
-             fighter.pos.balance > 0.7 and
-             fighter.fatigue < 0.6
+             fighter.pos.balance > 0.7
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var fighter = if who == FighterA: addr state.a else: addr state.b
@@ -272,10 +269,10 @@ proc createMuayThaiRoundKick*(): Move =
     fighter.biomech.weightDistribution -= 0.40
     fighter.biomech.recovering = true
     fighter.biomech.recoveryFrames = 6
-    fighter.fatigue = min(1.0, fighter.fatigue + 0.18)
+    discard  # fatigue: charged from energyCost by the simulator (runtime overlay)
 
     if fighter.pos.balance > 0.7:
-      opponent.damage += 0.08  # Very high damage
+      discard  # damage: applied from damageEffect by the simulator (runtime overlay)
       opponent.pos.balance -= 0.15
 
 proc createKarateMawashiGeri*(): Move =
@@ -322,8 +319,7 @@ proc createKarateMawashiGeri*(): Move =
     let fighter = if who == FighterA: state.a else: state.b
     result = fighter.rightLeg.free and
              state.distance in [Short, Medium] and
-             fighter.pos.balance > 0.5 and
-             fighter.fatigue < 0.75
+             fighter.pos.balance > 0.5
 
   result.apply = proc(state: var FightState, who: FighterID) =
     var fighter = if who == FighterA: addr state.a else: addr state.b
@@ -335,19 +331,24 @@ proc createKarateMawashiGeri*(): Move =
     fighter.biomech.weightDistribution -= 0.25
     fighter.biomech.recovering = true
     fighter.biomech.recoveryFrames = 3
-    fighter.fatigue = min(1.0, fighter.fatigue + 0.12)
+    discard  # fatigue: charged from energyCost by the simulator (runtime overlay)
 
     if fighter.pos.balance > 0.6:
-      opponent.damage += 0.045  # Moderate damage
+      discard  # damage: applied from damageEffect by the simulator (runtime overlay)
       opponent.pos.balance -= 0.08
 
 # ============================================================================
 # Variant Comparison System
 # ============================================================================
 
+type VariantScenario* = tuple[state: FightState, who: FighterID, name: string,
+                              overlay: RuntimeOverlay]
+  ## A position plus the acting fighter's condition (fatigue/damage are
+  ## runtime overlays, not part of the position).
+
 proc compareVariants*(
   moves: seq[Move],
-  scenarios: seq[tuple[state: FightState, who: FighterID, name: string]]
+  scenarios: seq[VariantScenario]
 ): VariantComparison =
   ## Compare move variants across different scenarios
   ## Returns which variant is optimal in each scenario
@@ -358,19 +359,20 @@ proc compareVariants*(
     var scores: seq[tuple[moveId: string, score: float]] = @[]
 
     for move in moves:
-      # Check if move is viable in this scenario
-      if move.prerequisites(scenario.state, scenario.who):
-        # Score it tactically
-        let viableMoves = @[move]  # Simplified for comparison
-        let score = scoreMoveTactically(move, scenario.state, scenario.who, viableMoves)
-        scores.add((moveId: move.id, score: score))
+      # Position decides whether the move is possible at all...
+      if not move.prerequisites(scenario.state, scenario.who): continue
+      # ...and the fighter's condition (overlay) how well it can be done.
+      let viability = if move.viabilityCheck != nil: move.viabilityCheck(scenario.overlay, move)
+                      else: 1.0
+      if viability <= 0.0: continue
+      let viableMoves = @[move]  # Simplified for comparison
+      let score = viability * scoreMoveTactically(move, scenario.state, scenario.who,
+                                                  viableMoves, scenario.overlay)
+      scores.add((moveId: move.id, score: score))
 
     # Sort by score descending
-    scores.sort(proc(a, b: auto): int =
-      if b.score > a.score: 1
-      elif b.score < a.score: -1
-      else: 0
-    )
+    scores.sort(proc(a, b: tuple[moveId: string, score: float]): int =
+      cmp(b.score, a.score))
 
     result.scenarios[scenario.name] = scores
 
@@ -381,7 +383,7 @@ proc printVariantComparison*(comparison: VariantComparison) =
   echo "═".repeat(70)
 
   for scenario, scores in comparison.scenarios:
-    echo fmt"\nScenario: {scenario}"
+    echo "\n" & fmt"Scenario: {scenario}"
     echo "─".repeat(70)
 
     if scores.len == 0:
@@ -393,34 +395,37 @@ proc printVariantComparison*(comparison: VariantComparison) =
       let emoji = if rank == 1: "🥇" elif rank == 2: "🥈" elif rank == 3: "🥉" else: "  "
       echo fmt"{emoji} {rank}. {s.moveId:30} Score: {s.score:.4f}"
 
-proc createTestScenarios*(): seq[tuple[state: FightState, who: FighterID, name: string]] =
+proc createTestScenarios*(): seq[VariantScenario] =
   ## Create various test scenarios to compare variants
   result = @[]
+  let fresh = createFreshOverlay()
+  var tiredOverlay = createFreshOverlay()
+  tiredOverlay.fatigue = 0.60
+  var exhaustedOverlay = createFreshOverlay()
+  exhaustedOverlay.fatigue = 0.75
 
   # Scenario 1: Fresh fighters, medium range
-  var fresh = createInitialState()
-  result.add((state: fresh, who: FighterA, name: "Fresh fighters, medium range"))
+  let start = createInitialState()
+  result.add((state: start, who: FighterA, name: "Fresh fighters, medium range", overlay: fresh))
 
   # Scenario 2: High fatigue (60%), medium range
-  var tired = createInitialState()
-  tired.a.fatigue = 0.60
-  result.add((state: tired, who: FighterA, name: "60% fatigued, medium range"))
+  result.add((state: start, who: FighterA, name: "60% fatigued, medium range", overlay: tiredOverlay))
 
   # Scenario 3: Close range, balanced
   var closeRange = createInitialState()
   closeRange.distance = Short
-  result.add((state: closeRange, who: FighterA, name: "Close range, fresh"))
+  result.add((state: closeRange, who: FighterA, name: "Close range, fresh", overlay: fresh))
 
   # Scenario 4: Unbalanced (40% balance)
   var unbalanced = createInitialState()
   unbalanced.a.pos.balance = 0.40
-  result.add((state: unbalanced, who: FighterA, name: "Low balance (40%), medium range"))
+  result.add((state: unbalanced, who: FighterA, name: "Low balance (40%), medium range", overlay: fresh))
 
   # Scenario 5: High fatigue + unbalanced
   var exhausted = createInitialState()
-  exhausted.a.fatigue = 0.75
   exhausted.a.pos.balance = 0.45
-  result.add((state: exhausted, who: FighterA, name: "Exhausted (75% fatigue, 45% balance)"))
+  result.add((state: exhausted, who: FighterA, name: "Exhausted (75% fatigue, 45% balance)",
+              overlay: exhaustedOverlay))
 
 when isMainModule:
   echo "=== Martial Arts Variant Comparison ==="

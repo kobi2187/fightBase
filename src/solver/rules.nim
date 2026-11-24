@@ -3,39 +3,46 @@
 ## distribution over next positions.
 ##
 ## Resolution of a beat
-## 1. Each fighter's action produces a primary event (a strike misses or lands
-##    for 0/1/2 damage levels; a takedown, clinch entry, throw, pass, ...
-##    succeeds or fails). Probabilities depend on both actions and on both
-##    fighters' condition.
-## 2. Initiative: if both attack, the technique with the higher `speed`
-##    resolves first; when it succeeds it cuts the slower technique's chance.
+## 1. Each fighter's action produces a primary event. A strike misses, or
+##    lands and has an effect on its target zone (damage, a stun, hurt legs)
+##    computed by `body.nim` from the strike's force and the zone's
+##    threshold. Grappling actions succeed or fail.
+## 2. Initiative: the action with the higher speed resolves first and, if it
+##    succeeds, cuts the slower action's chance. A rotational strike thrown
+##    from the unloaded side is one step slower (it needs a wind-up).
 ##    Equal speeds resolve independently (a trade).
-## 3. Secondary coin flips: knockdowns, ending off-balance, keeping or taking
-##    an angle, failed submissions giving up position.
-## 4. The new position follows a fixed priority (knockdown > takedown/throw >
-##    clinch > footwork), damage is added (reaching the KO level ends the
-##    fight), and each fighter's fatigue moves up or down.
+## 3. Secondary coin flips: knockdowns, ending off-balance, taking an angle,
+##    being caught while running.
+## 4. The new position follows a fixed priority (finish > escape >
+##    knockdown > takedown > grab > footwork). Damage is added (reaching the
+##    last level incapacitates), stuns and hurt legs are recorded, and each
+##    fighter's hips are re-loaded according to the strike they threw.
 ##
 ## The rules never refer to "A" or "B" directly, only to a fighter and their
-## opponent, so swapping the fighters' labels swaps the result. The test suite
-## checks that on every state and action pair.
+## opponent; the only asymmetry is who may flee in self-defense mode. The test
+## suite checks the mirror symmetry in sport mode on every state and pair.
 
-import core, params
+import core, params, body
 
 type
   EventTag* = enum
-    ## What happened during a beat, for statistics (strike accuracy etc.).
-    etLanded       ## a strike landed (with or without damage)
-    etDamaged      ## a strike dealt at least one damage level
-    etKnockdown    ## a strike knocked the opponent down
-    etTakedown     ## a takedown succeeded
+    ## What happened during a beat, for statistics and the playbook.
+    etLanded       ## a strike landed
+    etDamaged      ## ... and dealt at least one damage level
+    etStunned      ## ... and stunned the opponent
+    etLegs         ## ... and hurt the opponent's legs
+    etKnockdown    ## knocked the opponent down
+    etTakedown     ## a takedown/tackle succeeded
     etStuffed      ## sprawled on and lost the back
-    etThrow        ## a clinch throw succeeded
-    etClinchEntry  ## got into the clinch
-    etAngle        ## took the angle
-    etSubmission   ## finished with a submission
+    etThrow        ## a throw/trip/slam succeeded
+    etGrab         ## got hold of the opponent
+    etAngle        ## took the outside angle
+    etDeflect      ## made a strike miss by slipping or parrying
     etCountered    ## landed a counter on an attacking opponent
-    etFeinted      ## drew a counter/slip with a feint
+    etFeinted      ## drew a reaction with a feint
+    etEscaped      ## got away
+    etTurned       ## turned out of a hold from behind
+    etSubmission   ## finished with a choke/submission
     etSweep        ## swept from bottom
     etPass         ## improved top position
     etEscape       ## escaped a bottom position
@@ -51,24 +58,26 @@ type
   Ev = object
     kind: EvKind
     dmg: int
+    stun, legs: bool
     p: float
 
   Raw = object
-    ## A resolved beat before damage, fatigue and terminal checks.
+    ## A resolved beat before damage and terminal checks.
     p: float
     pos: Pos
     dmgTaken: array[Who, int]
-    off: array[Who, bool]
-    term: int                 ## -1, or ord(Terminal) for a submission
+    stun, legs, off: array[Who, bool]
+    term: int                 ## -1, or ord(Terminal)
     tags: array[Who, set[EventTag]]
 
-  Ctx = object
-    s: State
-    act: array[Who, Action]
-    d: Dims
+  Ctx* = object
+    s*: State
+    act*: array[Who, Action]
+    d*: Dims
+    mode*: Mode
 
 # ---------------------------------------------------------------------------
-# Small helpers
+# Helpers
 # ---------------------------------------------------------------------------
 
 proc clampP(p: Params, x: float): float {.inline.} = clamp(x, 0.0, p.maxProb)
@@ -82,15 +91,27 @@ proc hitAt*(p: Params, a: Action, r: Range): float =
 proc skill(p: Params, c: Ctx, w: Who): float =
   ## Multiplier on a fighter's own chance to make anything work.
   let f = c.s.f[w]
-  result = max(0.0, 1.0 - p.fatiguePenalty * f.fat.float) *
-           max(0.0, 1.0 - p.damagePenalty * f.dmg.float)
-  if f.off: result *= p.offAtk
+  result = max(0.0, 1.0 - p.damagePenalty * f.dmg.float)
+  case f.cond
+  of cOff: result *= p.offAtk
+  of cStunned: result *= p.stunAtk
+  of cOk: discard
 
 proc exposure(p: Params, c: Ctx, w: Who): float =
   ## Multiplier on strikes landing on this fighter.
-  let f = c.s.f[w]
-  result = 1.0 + p.fatigueDefense * f.fat.float
-  if f.off: result *= p.offDef
+  case c.s.f[w].cond
+  of cOff: p.offDef
+  of cStunned: p.stunDef
+  of cOk: 1.0
+
+proc grappleVuln(p: Params, c: Ctx, w: Who): float =
+  case c.s.f[w].cond
+  of cOff: p.offGrapple
+  of cStunned: p.stunGrapple
+  of cOk: 1.0
+
+proc moveMult(p: Params, c: Ctx, w: Who): float =
+  if c.s.f[w].legs: p.legsMove else: 1.0
 
 proc chin(p: Params, c: Ctx, w: Who): float =
   1.0 + p.chinPenalty * c.s.f[w].dmg.float
@@ -100,6 +121,47 @@ proc angleMult(p: Params, c: Ctx, w: Who): float =
     if c.s.pos.hasAngle(w): return p.angleAtk
     if c.s.pos.hasAngle(w.other): return p.angleDef
   1.0
+
+proc loaded*(f: Fighter, a: Action): bool =
+  ## Is the side this rotational technique uses wound up?
+  let t = tech[a]
+  if t.mech != mkRotational: return true
+  case t.side
+  of sdRear: f.coil == coRear
+  of sdLead: f.coil == coLead
+  of sdNone: true
+
+proc effSpeed*(p: Params, c: Ctx, w: Who): int =
+  ## A rotational strike from the unloaded side needs a wind-up: one step
+  ## slower (unless the model variant ignores hip loading).
+  let a = c.act[w]
+  result = tech[a].speed
+  if p.unloadedPower < 0.999 and not loaded(c.s.f[w], a): result = max(0, result - 1)
+
+proc nextCoil*(f: Fighter, a: Action): Coil =
+  ## Throwing a rotational strike unwinds its side and loads the other.
+  let t = tech[a]
+  if t.mech != mkRotational: return f.coil
+  case t.side
+  of sdRear: coLead
+  of sdLead: coRear
+  of sdNone: f.coil
+
+proc forceOf(p: Params, c: Ctx, w: Who, a: Action): float =
+  let f = c.s.f[w]
+  result = p.force[a] * max(0.0, 1.0 - p.damagePenalty * f.dmg.float)
+  if not loaded(f, a): result *= p.unloadedPower
+  case f.cond
+  of cOff: result *= p.offPower
+  of cStunned: result *= p.stunAtk
+  of cOk: discard
+  if a in Kicks and f.legs: result *= p.legsPower
+
+proc targetZone(c: Ctx, w: Who, a: Action): VulnerabilityZone =
+  ## A stunned (bent-over) or downed opponent exposes a different target.
+  let o = w.other
+  if c.s.f[o].cond == cStunned or c.s.pos.isDown(o): tech[a].downZone
+  else: tech[a].zone
 
 proc combineOff(ps: openArray[float]): float =
   var stay = 1.0
@@ -111,20 +173,34 @@ iterator coin(p: float): (bool, float) =
   if p > 0.0: yield (true, min(p, 1.0))
   if p < 1.0: yield (false, 1.0 - max(p, 0.0))
 
-proc strikeEvents(p: Params, c: Ctx, w: Who, landP, d1, d2, dmgMult: float): seq[Ev] =
+proc impactEvents(p: Params, c: Ctx, w: Who, z: VulnerabilityZone, force: float,
+                  stunMult, legsMult: float): array[3, array[2, array[2, float]]] =
+  ## What one landed impact of `force` on zone `z` does: solid with the
+  ## zone's precision, otherwise glancing. Returns P[dmg][stun][legs].
   let o = w.other
-  var l = d1 * dmgMult * chin(p, c, o)
-  var h = d2 * dmgMult * chin(p, c, o)
-  if l + h > 1.0:
-    let k = 1.0 / (l + h)
-    l *= k
-    h *= k
+  var prec = zonePrecision[z] * p.precisionScale
+  if c.s.f[o].cond == cStunned or c.s.pos.isDown(o): prec *= 1.3   # a still target
+  prec = clamp(prec, 0.0, 1.0)
+  let needed = zoneProfiles[z].force
+  for (q, f) in [(prec, force), (1.0 - prec, force * p.glanceForce)]:
+    if q <= 0.0: continue
+    let e = effectStrength(f, needed, p.effBase, p.effSlope)
+    for eff in strikeEffects(z, e, p.damageScale * chin(p, c, o), stunMult, legsMult):
+      result[eff.dmg][ord(eff.stun)][ord(eff.legs)] += q * eff.p
+
+proc strikeEvents(p: Params, c: Ctx, w: Who, a: Action, landP, forceMult: float): seq[Ev] =
   let pl = clampP(p, landP)
   if pl < 1.0: result.add Ev(kind: evMiss, p: 1.0 - pl)
-  if pl > 0.0:
-    if 1.0 - l - h > 1e-15: result.add Ev(kind: evLand, dmg: 0, p: pl * (1.0 - l - h))
-    if l > 0.0: result.add Ev(kind: evLand, dmg: 1, p: pl * l)
-    if h > 0.0: result.add Ev(kind: evLand, dmg: 2, p: pl * h)
+  if pl <= 0.0: return
+  let z = targetZone(c, w, a)
+  let force = forceOf(p, c, w, a) * forceMult * p.forceScale
+  let dist = impactEvents(p, c, w, z, force, p.stunScale, p.legsScale)
+  for dmg in 0 .. 2:
+    for stun in 0 .. 1:
+      for legs in 0 .. 1:
+        let q = dist[dmg][stun][legs]
+        if q > 1e-15:
+          result.add Ev(kind: evLand, dmg: dmg, stun: stun == 1, legs: legs == 1, p: pl * q)
 
 proc binaryEvents(p: Params, success: float): seq[Ev] =
   let ps = clampP(p, success)
@@ -134,14 +210,15 @@ proc binaryEvents(p: Params, success: float): seq[Ev] =
 proc succeeded(e: Ev): bool {.inline.} = e.kind in {evLand, evSuccess}
 
 proc interruptFactor(p: Params, faster: Action): float =
-  1.0 - (if faster in LightStrikes: p.interruptLight else: p.interruptHeavy)
+  1.0 - (if tech[faster].mech in {mkLinear, mkWhip, mkPush}: p.interruptLight
+         else: p.interruptHeavy)
 
 template forOrdered(c: Ctx, p: Params, dist: untyped, body: untyped) =
   ## Enumerate the joint primary events of both fighters with initiative:
   ## the faster action resolves first and, on success, disrupts the slower.
   ## Inside `body`: `ev: array[Who, Ev]` and `prob: float`.
-  let sa = speed[c.act[wA]]
-  let sb = speed[c.act[wB]]
+  let sa = effSpeed(p, c, wA)
+  let sb = effSpeed(p, c, wB)
   if sa == sb:
     for ea in dist(p, c, wA, 1.0):
       for eb in dist(p, c, wB, 1.0):
@@ -162,42 +239,78 @@ template forOrdered(c: Ctx, p: Params, dist: untyped, body: untyped) =
         let prob {.inject.} = e1.p * e2.p
         body
 
+proc recordLand(p: Params, w: Who, e: Ev, raw: var Raw, offSrc: var array[Who, seq[float]],
+                kdRisk: var array[Who, bool]) =
+  ## Book-keeping shared by every position: what a landed strike did.
+  let o = w.other
+  raw.tags[w].incl etLanded
+  raw.dmgTaken[o] += e.dmg
+  if e.dmg > 0:
+    raw.tags[w].incl etDamaged
+    offSrc[o].add p.stagger
+  if e.dmg >= 2: kdRisk[o] = true
+  if e.stun:
+    raw.stun[o] = true
+    raw.tags[w].incl etStunned
+  if e.legs:
+    raw.legs[o] = true
+    raw.tags[w].incl etLegs
+
 # ---------------------------------------------------------------------------
 # Legal actions
 # ---------------------------------------------------------------------------
 
-proc legalActions*(p: Params, s: State, w: Who, arsenal: set[Action], d: Dims): seq[Action] =
+proc legalActions*(p: Params, s: State, w: Who, arsenal: set[Action], d: Dims,
+                   mode = mSelfDefense): seq[Action] =
   let pos = s.pos
   var cand: set[Action]
   if pos in StandingPositions:
     let r = pos.rangeOf
     cand = {aRetreat, aCover, aCounter, aFeint, aShoot, aSprawl}
     if r != rClose: cand.incl aAdvance
-    if r != rLong: cand = cand + {aCircle, aSlip, aClinch}
-    for a in StandingStrikes + {aKnee}:
+    if r != rLong: cand = cand + {aCircle, aSlip, aParry, aGrab}
+    if r == rLong: cand.incl aFlee
+    for a in StandingStrikes + {aHeadbutt, aPush}:
       if hitAt(p, a, r) > 0.0: cand.incl a
   elif pos in ClinchPositions:
-    cand = {aKnee, aPummel, aThrow, aBreak, aCover}
+    cand = {aPummel, aThrow, aBreak, aCover}
+    for a in Action:
+      if p.hitClinch[a] > 0.0: cand.incl a
+    if pos.clinchLevel(w) > 0: cand.incl aChoke
+  elif pos in BehindPositions:
+    if pos.advantaged == ord(w):
+      cand = {aChoke, aThrow, aHold, aBreak}
+    else:
+      cand = {aTurn, aCover}
+      for a in Action:
+        if p.hitBehind[a] > 0.0: cand.incl a
   elif pos in OverPositions:
-    cand = if pos.isDown(w): {aGetUp, aUpkick, aCover} else: {aFollow, aBackOff}
+    if pos.isDown(w): cand = {aGetUp, aUpkick, aCover}
+    else: cand = {aFollow, aBackOff, aStomp, aFlee}
   else:
     let k = pos.groundKind
     if pos.isTop(w):
       cand = {aPound, aHold, aDisengage}
       if k in {gGuard, gMount}: cand.incl aPass
-      if k in {gMount, gBack}: cand.incl aSubmit
+      if k in {gMount, gBack}: cand.incl aChoke
     else:
       cand = {aEscape, aCover}
       if k == gGuard: cand = cand + {aSweep, aGuardSub}
   cand = cand * (arsenal + CoreActions)
+  # Only the defender runs, and only in self-defense.
+  if mode != mSelfDefense or w != wA: cand.excl aFlee
   let f = s.f[w]
-  if f.off or f.fat >= d.fatigueLevels - 1:
-    cand = cand - HeavyActions
+  if f.cond != cOk: cand = cand - HeavyActions
+  if f.legs: cand = cand - {aRoundKick, aLowKick}
+  if f.cond == cStunned:
+    let still = cand * StunnedActions
+    if still.card > 0: cand = still
+    elif (cand * CoreActions).card > 0: cand = cand * CoreActions
   for a in Action:
     if a in cand: result.add a
 
 # ---------------------------------------------------------------------------
-# Standing exchanges
+# Standing
 # ---------------------------------------------------------------------------
 
 proc standingDist(p: Params, c: Ctx, w: Who, interrupt: float): seq[Ev] =
@@ -205,35 +318,48 @@ proc standingDist(p: Params, c: Ctx, w: Who, interrupt: float): seq[Ev] =
   let o = w.other
   let oa = c.act[o]
   let r = c.s.pos.rangeOf
-  case a
-  of aJab, aCross, aHook, aKick, aTeep, aKnee:
+  if a in StandingStrikes + {aHeadbutt, aPush}:
+    let mech = tech[a].mech
     var m = skill(p, c, w) * exposure(p, c, o) * angleMult(p, c, w) * interrupt
+    var fm = 1.0
+    let low = targetZone(c, w, a) in LegZones + {vzGroin}
     case oa
-    of aCover: m *= p.coverHit
+    of aCover:
+      if not low:
+        m *= p.coverVs[mech]
+        fm *= p.coverForce
     of aSlip:
-      if a in Punches: m *= p.slipPunch
-      elif a == aKick: m *= p.slipKick
-    of aRetreat: m *= (if a in {aKick, aTeep}: p.retreatKick else: p.retreatHit)
-    of aAdvance: m *= (if a == aKick: p.jamKick else: p.advanceHit)
+      if a notin Kicks: m *= p.slipVs[mech]
+    of aParry:
+      m *= (if a in Kicks: 0.5 * (1.0 + p.parryVs[mech]) else: p.parryVs[mech])
+    of aCounter:
+      m *= p.counterVs[mech]
+    of aRetreat, aFlee:
+      m *= (if a in Kicks: p.retreatKick else: p.retreatHit)
+    of aAdvance:
+      if a in {aLowKick, aRoundKick, aGroinKick}:
+        m *= p.jamKick
+        fm *= p.jamKick
+      else:
+        m *= p.advanceHit
+        fm *= p.advanceForce
     of aCircle: m *= p.circleHit
     of aShoot:
       if a in Punches: m *= p.shootDuck
+      elif a == aKnee: m *= p.kneeVsShoot
     of aSprawl: m *= p.sprawlExposed
-    of aCounter: m *= p.counterDef
     else: discard
-    var dm = 1.0
-    if oa == aCover: dm *= p.coverDmg
-    if oa == aAdvance: dm *= (if a == aKick: p.jamKick else: p.advanceDmg)
-    result = strikeEvents(p, c, w, hitAt(p, a, r) * m, p.dmg1[a], p.dmg2[a], dm)
+    if oa in Committing and mech in {mkLinear, mkWhip, mkPush}:
+      m *= p.interceptHit
+    return strikeEvents(p, c, w, a, hitAt(p, a, r) * m, fm)
+  case a
   of aShoot:
-    var m = skill(p, c, w) * angleMult(p, c, w) * interrupt
-    if c.s.f[o].off: m *= p.offGrapple
+    var m = skill(p, c, w) * angleMult(p, c, w) * grappleVuln(p, c, o) * interrupt
     case oa
     of aSprawl: m *= p.sprawlStop
-    of aRetreat: m *= p.shootVsRetreat
+    of aRetreat, aFlee: m *= p.shootVsRetreat
     of aAdvance: m *= p.shootVsAdvance
-    of aKick: m *= p.shootVsKick
-    of aCross, aHook: m *= p.shootVsCommit
+    of aHaymaker, aRoundKick, aLowKick: m *= p.shootVsCommit
     of aShoot: m *= p.shootBoth
     else: discard
     let base = case r
@@ -243,40 +369,44 @@ proc standingDist(p: Params, c: Ctx, w: Who, interrupt: float): seq[Ev] =
     let ps = clampP(p, base * m)
     if ps > 0.0: result.add Ev(kind: evSuccess, p: ps)
     if ps < 1.0:
+      let q = 1.0 - ps
       if oa == aSprawl:
-        # stuffed: front choke, back take, or just stopped
-        let q = 1.0 - ps
         let choke = clamp(p.guillotine, 0.0, 1.0)
         let back = (1.0 - choke) * p.sprawlBack
         if choke > 0.0: result.add Ev(kind: evChoked, p: q * choke)
         if back > 0.0: result.add Ev(kind: evStuffed, p: q * back)
         if 1.0 - choke - back > 0.0: result.add Ev(kind: evFail, p: q * (1.0 - choke - back))
       else:
-        result.add Ev(kind: evFail, p: 1.0 - ps)
-  of aClinch:
-    if oa == aClinch:
-      result.add Ev(kind: evSuccess, p: 1.0)   # both want the tie-up
+        result.add Ev(kind: evFail, p: q)
+  of aGrab:
+    if oa == aGrab:
+      result.add Ev(kind: evSuccess, p: 1.0)
     else:
-      var m = skill(p, c, w) * angleMult(p, c, w) * interrupt
-      if c.s.f[o].off: m *= p.offGrapple
-      if oa == aRetreat: m *= p.clinchVsRetreat
-      result = binaryEvents(p, (if r == rClose: p.clinchBase else: p.clinchMid) * m)
+      var m = skill(p, c, w) * angleMult(p, c, w) * grappleVuln(p, c, o) * interrupt
+      if oa in {aRetreat, aFlee}: m *= p.grabVsRetreat
+      result = binaryEvents(p, (if r == rClose: p.grabClose else: p.grabMid) * m)
+  of aCircle:
+    var m = skill(p, c, w) * moveMult(p, c, w) * interrupt
+    if oa == aCircle: m *= p.circleVsCircle
+    result = binaryEvents(p, p.circleBase * m)
   of aCounter:
-    if oa in StandingStrikes + {aKnee}:
-      let m = skill(p, c, w) * exposure(p, c, o) * angleMult(p, c, w) * interrupt
-      result = strikeEvents(p, c, w, p.hitScale * p.counterHit * m,
-                            p.dmg1[aCounter], p.dmg2[aCounter], 1.0)
+    if oa in StandingStrikes:
+      let land = p.hitScale * p.counterHit * skill(p, c, w) * exposure(p, c, o) *
+                 angleMult(p, c, w) * interrupt
+      result = strikeEvents(p, c, w, aCounter, land, 1.0)
     else:
       result.add Ev(kind: evNone, p: 1.0)   # nothing to counter
   of aFeint:
-    if oa in {aCounter, aSlip}:
+    if oa in {aCounter, aParry, aSlip}:
       result = binaryEvents(p, p.feintDraw * skill(p, c, w))
     else:
       result.add Ev(kind: evNone, p: 1.0)
-  of aCircle:
-    var m = skill(p, c, w) * interrupt
-    if oa == aCircle: m *= p.circleVsCircle
-    result = binaryEvents(p, p.circleBase * m)
+  of aFlee:
+    var m = moveMult(p, c, w) * interrupt
+    if c.s.f[o].cond != cOk: m *= p.fleeAttackerHurt
+    if c.s.f[o].legs: m *= p.fleeAttackerLegs
+    if oa in {aAdvance, aShoot}: m *= p.fleeVsChase
+    result = binaryEvents(p, p.fleeBase * m)
   else:
     result.add Ev(kind: evNone, p: 1.0)
 
@@ -284,11 +414,9 @@ proc resolveStanding(p: Params, c: Ctx, raws: var seq[Raw]) =
   let pos = c.s.pos
   let r = pos.rangeOf
   forOrdered(c, p, standingDist):
+    var base = Raw(p: prob, term: -1)
     var offSrc: array[Who, seq[float]]
-    var dmgTaken: array[Who, int]
-    var kdRisk: array[Who, bool]
-    var tags: array[Who, set[EventTag]]
-    var takedown, stuffedBy, choked, clinchIn, circled: array[Who, bool]
+    var kdRisk, takedown, stuffedBy, chokedBy, grabbed, circled, escaped, caught: array[Who, bool]
     var slipChance: array[Who, float]
     var pushed, shotFailed = false
     var intent = 0
@@ -302,132 +430,162 @@ proc resolveStanding(p: Params, c: Ctx, raws: var seq[Raw]) =
       let e = ev[w]
       case e.kind
       of evLand:
-        tags[w].incl etLanded
-        dmgTaken[o] += e.dmg
-        if e.dmg > 0:
-          tags[w].incl etDamaged
-          offSrc[o].add p.stagger
-        if e.dmg >= 2: kdRisk[o] = true
-        if a == aTeep:
+        recordLand(p, w, e, base, offSrc, kdRisk)
+        if tech[a].mech == mkPush:
           pushed = true
-          offSrc[o].add p.teepOff
-        if a == aCounter: tags[w].incl etCountered
+          offSrc[o].add p.pushOff
+        if a == aCounter: base.tags[w].incl etCountered
       of evMiss:
         offSrc[w].add p.commit[a]
-        if a in Punches and c.act[o] == aSlip: slipChance[o] = p.slipAngle
+        if a in StandingStrikes:
+          case c.act[o]
+          of aSlip:
+            if a notin Kicks:
+              slipChance[o] = p.slipAngle
+              base.tags[o].incl etDeflect
+          of aParry:
+            offSrc[w].add p.parryOff
+            base.tags[o].incl etDeflect
+          else: discard
       of evSuccess:
         case a
         of aShoot: takedown[w] = true
-        of aClinch: clinchIn[w] = true
+        of aGrab: grabbed[w] = true
         of aCircle: circled[w] = true
+        of aFlee: escaped[w] = true
         of aFeint:
-          offSrc[o].add 1.0          # the opponent bit on the feint
-          tags[w].incl etFeinted
+          offSrc[o].add 1.0
+          base.tags[w].incl etFeinted
         else: discard
       of evFail:
         offSrc[w].add p.commit[a]
         if a == aShoot: shotFailed = true
-      of evStuffed:
-        stuffedBy[o] = true
-      of evChoked:
-        choked[w] = true
+        if a == aFlee: caught[w] = true
+      of evStuffed: stuffedBy[o] = true
+      of evChoked: chokedBy[o] = true
       of evNone: discard
 
+    let fleer = if caught[wA]: wA elif caught[wB]: wB else: wA
+    let caughtChance = if caught[wA] or caught[wB]: p.fleeCaughtBehind else: 0.0
     for (kdA, pkA) in coin(if kdRisk[wA]: p.knockdown else: 0.0):
       for (kdB, pkB) in coin(if kdRisk[wB]: p.knockdown else: 0.0):
         for (offA, poA) in coin(combineOff(offSrc[wA])):
           for (offB, poB) in coin(combineOff(offSrc[wB])):
             for (slipA, psA) in coin(slipChance[wA]):
               for (slipB, psB) in coin(slipChance[wB]):
-                let base = prob * pkA * pkB * poA * poB * psA * psB
-                if base <= 0.0: continue
-                var o = Raw(p: base, dmgTaken: dmgTaken, off: [wA: offA, wB: offB],
-                            term: -1, tags: tags)
-                if choked[wA] or choked[wB]:
-                  let winner = if choked[wA]: wB else: wA
-                  o.term = ord(if winner == wA: tASub else: tBSub)
-                  o.tags[winner].incl etSubmission
-                  raws.add o
-                  continue
-                let kd = [wA: kdA, wB: kdB]
-                if kd[wA] and kd[wB]:
-                  o.pos = pLong
-                  o.off = [wA: true, wB: true]
-                  raws.add o
-                  continue
-                var decided = false
-                for w in Who:
-                  if kd[w.other]:
-                    o.pos = overPos(w)
-                    o.tags[w].incl etKnockdown
-                    decided = true
-                if decided:
-                  raws.add o
-                  continue
-                if takedown[wA] and takedown[wB]:
-                  o.pos = pClinch
-                  raws.add o
-                  continue
-                for w in Who:
-                  if not decided and takedown[w]:
-                    o.pos = groundPos(w, gGuard)
-                    o.tags[w].incl etTakedown
-                    decided = true
-                  elif not decided and stuffedBy[w]:
-                    o.pos = groundPos(w, gBack)
-                    o.tags[w.other].incl etStuffed
-                    decided = true
-                if decided:
-                  raws.add o
-                  continue
-                if clinchIn[wA] or clinchIn[wB]:
-                  var lvl = 0
-                  if clinchIn[wA] and not clinchIn[wB] and pos.hasAngle(wA): lvl = 1
-                  if clinchIn[wB] and not clinchIn[wA] and pos.hasAngle(wB): lvl = -1
-                  o.pos = clinchPos(lvl)
+                for (behind, pc) in coin(caughtChance):
+                  let pr = prob * pkA * pkB * poA * poB * psA * psB * pc
+                  if pr <= 0.0: continue
+                  var o = base
+                  o.p = pr
+                  o.off = [wA: offA, wB: offB]
+                  let kd = [wA: kdA, wB: kdB]
+                  # 1. finishes and escapes
+                  if chokedBy[wA] or chokedBy[wB]:
+                    let winner = if chokedBy[wA]: wA else: wB
+                    o.term = ord(if winner == wA: tASub else: tBSub)
+                    o.tags[winner].incl etSubmission
+                    raws.add o
+                    continue
+                  if escaped[wA] and not kd[wA]:
+                    o.term = ord(tAEscape)
+                    o.tags[wA].incl etEscaped
+                    raws.add o
+                    continue
+                  # 2. knockdowns
+                  if kd[wA] and kd[wB]:
+                    o.pos = pLong
+                    o.off = [wA: true, wB: true]
+                    raws.add o
+                    continue
+                  var decided = false
                   for w in Who:
-                    if clinchIn[w]: o.tags[w].incl etClinchEntry
-                  raws.add o
-                  continue
-                # Footwork
-                var nr = r
-                var lostAngle = false
-                if pushed:
-                  nr = Range(min(ord(rLong), ord(r) + 1))
-                  lostAngle = true
-                elif shotFailed:
-                  nr = rClose
-                else:
-                  if intent > 0:
+                    if not decided and kd[w.other]:
+                      o.pos = overPos(w)
+                      o.tags[w].incl etKnockdown
+                      decided = true
+                  if decided:
+                    raws.add o
+                    continue
+                  # 3. takedowns
+                  if takedown[wA] and takedown[wB]:
+                    o.pos = pClinch
+                    raws.add o
+                    continue
+                  for w in Who:
+                    if not decided and takedown[w]:
+                      o.pos = groundPos(w, gGuard)
+                      o.tags[w].incl etTakedown
+                      decided = true
+                    elif not decided and stuffedBy[w]:
+                      o.pos = groundPos(w, gBack)
+                      o.tags[w.other].incl etStuffed
+                      decided = true
+                  if decided:
+                    raws.add o
+                    continue
+                  # 4. grabs
+                  if grabbed[wA] or grabbed[wB]:
+                    var lvl = 0
+                    for w in Who:
+                      if grabbed[w] and not grabbed[w.other] and
+                         (pos.hasAngle(w) or c.s.f[w.other].cond != cOk or o.stun[w.other]):
+                        lvl = if w == wA: 1 else: -1
+                      if grabbed[w]: o.tags[w].incl etGrab
+                    o.pos = clinchPos(lvl)
+                    raws.add o
+                    continue
+                  # 5. a failed flight
+                  if caught[wA] or caught[wB]:
+                    o.off[fleer] = true
+                    o.pos = if behind: behindPos(fleer.other) else: pMid
+                    raws.add o
+                    continue
+                  # 6. footwork
+                  var nr = r
+                  var lostAngle = false
+                  if pushed:
+                    nr = Range(min(ord(rLong), ord(r) + 1))
+                    lostAngle = true
+                  elif shotFailed:
+                    nr = rClose
+                  elif intent > 0:
                     nr = Range(min(ord(rLong), ord(r) + 1))
                     lostAngle = true
                   elif intent < 0:
                     nr = Range(max(ord(rClose), ord(r) - 1))
-                var angle = -1
-                if nr != rLong:
-                  if circled[wA] and not circled[wB]: angle = ord(wA)
-                  elif circled[wB] and not circled[wA]: angle = ord(wB)
-                  elif circled[wA] and circled[wB]: angle = -1
-                  elif slipA: angle = ord(wA)
-                  elif slipB: angle = ord(wB)
-                  else:
-                    angle = pos.advantaged
-                    if angle >= 0 and lostAngle: angle = -1
-                if angle >= 0 and pos.advantaged == angle and
-                   not circled[Who(angle)] and not [wA: slipA, wB: slipB][Who(angle)]:
-                  # an existing angle nobody renewed: it may fade
-                  let keep = p.angleKeep
-                  if keep < 1.0:
-                    var lose = o
-                    lose.p = base * (1.0 - keep)
-                    lose.pos = standing(nr, -1)
-                    raws.add lose
-                  o.p = base * keep
-                  if o.p <= 0.0: continue
-                elif angle >= 0:
-                  o.tags[Who(angle)].incl etAngle
-                o.pos = standing(nr, angle)
-                raws.add o
+                  var angle = -1
+                  var renewed = false
+                  if nr != rLong:
+                    if circled[wA] and not circled[wB]:
+                      angle = ord(wA)
+                      renewed = true
+                    elif circled[wB] and not circled[wA]:
+                      angle = ord(wB)
+                      renewed = true
+                    elif circled[wA] and circled[wB]: angle = -1
+                    elif slipA:
+                      angle = ord(wA)
+                      renewed = true
+                    elif slipB:
+                      angle = ord(wB)
+                      renewed = true
+                    else:
+                      angle = pos.advantaged
+                      if lostAngle: angle = -1
+                  if angle >= 0 and not renewed:
+                    # an existing angle nobody renewed may fade
+                    if p.angleKeep < 1.0:
+                      var lose = o
+                      lose.p = pr * (1.0 - p.angleKeep)
+                      lose.pos = standing(nr, -1)
+                      raws.add lose
+                    o.p = pr * p.angleKeep
+                    if o.p <= 0.0: continue
+                  elif angle >= 0:
+                    o.tags[Who(angle)].incl etAngle
+                  o.pos = standing(nr, angle)
+                  raws.add o
 
 # ---------------------------------------------------------------------------
 # Clinch
@@ -438,30 +596,34 @@ proc clinchDist(p: Params, c: Ctx, w: Who, interrupt: float): seq[Ev] =
   let o = w.other
   let oa = c.act[o]
   let lvl = c.s.pos.clinchLevel(w)
-  case a
-  of aKnee:
+  if p.hitClinch[a] > 0.0:
+    let mech = tech[a].mech
     var m = skill(p, c, w) * exposure(p, c, o) * interrupt
-    if lvl > 0: m *= p.kneeDom
-    elif lvl < 0: m *= p.kneeSub
-    if oa == aCover: m *= p.coverHit
-    if oa == aPummel: m *= p.kneeVsPummel
-    let dm = if oa == aCover: p.coverDmg else: 1.0
-    result = strikeEvents(p, c, w, p.hitScale * p.hitClinch[aKnee] * m, p.dmg1[aKnee], p.dmg2[aKnee], dm)
+    var fm = 1.0
+    if lvl > 0: m *= p.domStrike
+    elif lvl < 0: m *= p.subStrike
+    if oa == aCover and targetZone(c, w, a) notin LegZones + {vzGroin}:
+      m *= p.coverVs[mech]
+      fm *= p.coverForce
+    return strikeEvents(p, c, w, a, p.hitScale * p.hitClinch[a] * m, fm)
+  case a
   of aPummel:
     let base = if lvl < 0: p.pummelRecover else: p.pummelGain
     result = binaryEvents(p, base * skill(p, c, w) * interrupt)
   of aThrow:
-    var m = skill(p, c, w) * interrupt
-    if c.s.f[o].off: m *= p.offGrapple
+    var m = skill(p, c, w) * grappleVuln(p, c, o) * interrupt
     if oa == aKnee: m *= p.throwVsKnee
     if oa == aCover: m *= p.throwVsCover
     let base = if lvl > 0: p.throwDom elif lvl < 0: p.throwSub else: p.throwEven
-    # a successful throw also rolls damage from the landing
     let ps = clampP(p, base * m)
     if ps < 1.0: result.add Ev(kind: evFail, p: 1.0 - ps)
     if ps > 0.0:
-      for e in strikeEvents(p, c, w, 1.0, p.dmg1[aThrow], p.dmg2[aThrow], 1.0):
-        result.add Ev(kind: evSuccess, dmg: e.dmg, p: ps * e.p)
+      # the landing itself can hurt
+      let dist = impactEvents(p, c, w, vzBackOfHead, p.force[aThrow] * p.forceScale, p.stunScale, 0.0)
+      for dmg in 0 .. 2:
+        for stun in 0 .. 1:
+          let q = dist[dmg][stun][0]
+          if q > 1e-15: result.add Ev(kind: evSuccess, dmg: dmg, stun: stun == 1, p: ps * q)
   of aBreak:
     if oa == aBreak:
       result.add Ev(kind: evSuccess, p: 1.0)
@@ -469,54 +631,57 @@ proc clinchDist(p: Params, c: Ctx, w: Who, interrupt: float): seq[Ev] =
       var m = interrupt
       if lvl < 0: m *= p.breakVsDom
       result = binaryEvents(p, p.breakBase * m)
+  of aChoke:
+    var m = skill(p, c, w) * grappleVuln(p, c, o) * interrupt
+    if oa == aCover: m *= p.chokeVsCover
+    result = binaryEvents(p, p.chokeClinch * m)
   else:
     result.add Ev(kind: evNone, p: 1.0)
 
 proc resolveClinch(p: Params, c: Ctx, raws: var seq[Raw]) =
   let lvlA = c.s.pos.clinchLevel(wA)
   forOrdered(c, p, clinchDist):
+    var base = Raw(p: prob, term: -1)
     var offSrc: array[Who, seq[float]]
-    var dmgTaken: array[Who, int]
-    var kdRisk, threw, broke, pummelled: array[Who, bool]
-    var tags: array[Who, set[EventTag]]
+    var kdRisk, threw, broke, pummelled, choked: array[Who, bool]
     for w in Who:
       let o = w.other
       let a = c.act[w]
       let e = ev[w]
       case e.kind
-      of evLand:
-        tags[w].incl etLanded
-        dmgTaken[o] += e.dmg
-        if e.dmg > 0:
-          tags[w].incl etDamaged
-          offSrc[o].add p.stagger
-        if e.dmg >= 2: kdRisk[o] = true
-      of evMiss, evFail:
-        offSrc[w].add p.commit[a]
+      of evLand: recordLand(p, w, e, base, offSrc, kdRisk)
+      of evMiss, evFail: offSrc[w].add p.commit[a]
       of evSuccess:
         case a
         of aThrow:
           threw[w] = true
-          dmgTaken[o] += e.dmg
+          base.dmgTaken[o] += e.dmg
+          if e.stun: base.stun[o] = true
         of aBreak: broke[w] = true
         of aPummel: pummelled[w] = true
+        of aChoke: choked[w] = true
         else: discard
       else: discard
     for (kdA, pkA) in coin(if kdRisk[wA]: p.knockdown else: 0.0):
       for (kdB, pkB) in coin(if kdRisk[wB]: p.knockdown else: 0.0):
         for (offA, poA) in coin(combineOff(offSrc[wA])):
           for (offB, poB) in coin(combineOff(offSrc[wB])):
-            let base = prob * pkA * pkB * poA * poB
-            if base <= 0.0: continue
-            var o = Raw(p: base, dmgTaken: dmgTaken, off: [wA: offA, wB: offB], term: -1, tags: tags)
-            let kd = [wA: kdA, wB: kdB]
-            if kd[wA] and kd[wB]:
+            let pr = prob * pkA * pkB * poA * poB
+            if pr <= 0.0: continue
+            var o = base
+            o.p = pr
+            o.off = [wA: offA, wB: offB]
+            if choked[wA] or choked[wB]:
+              let w = if choked[wA]: wA else: wB
+              o.term = ord(if w == wA: tASub else: tBSub)
+              o.tags[w].incl etSubmission
+            elif kdA and kdB:
               o.pos = pClose
               o.off = [wA: true, wB: true]
-            elif kd[wB]:
+            elif kdB:
               o.pos = overPos(wA)
               o.tags[wA].incl etKnockdown
-            elif kd[wA]:
+            elif kdA:
               o.pos = overPos(wB)
               o.tags[wB].incl etKnockdown
             elif threw[wA] and threw[wB]:
@@ -529,9 +694,96 @@ proc resolveClinch(p: Params, c: Ctx, raws: var seq[Raw]) =
             elif broke[wA] or broke[wB]:
               o.pos = pClose
             else:
-              let lvl = clamp(lvlA + ord(pummelled[wA]) - ord(pummelled[wB]), -1, 1)
-              o.pos = clinchPos(lvl)
+              o.pos = clinchPos(clamp(lvlA + ord(pummelled[wA]) - ord(pummelled[wB]), -1, 1))
             raws.add o
+
+# ---------------------------------------------------------------------------
+# Held from behind (standing)
+# ---------------------------------------------------------------------------
+
+proc behindDist(p: Params, c: Ctx, w: Who, interrupt: float): seq[Ev] =
+  let a = c.act[w]
+  let o = w.other
+  let oa = c.act[o]
+  let controller = c.s.pos.advantaged == ord(w)
+  if not controller and p.hitBehind[a] > 0.0:
+    let land = p.hitScale * p.hitBehind[a] * skill(p, c, w) * exposure(p, c, o) * interrupt
+    return strikeEvents(p, c, w, a, land, 1.0)
+  case a
+  of aChoke:
+    var m = skill(p, c, w) * grappleVuln(p, c, o) * interrupt
+    if oa == aCover: m *= p.chokeVsCover
+    result = binaryEvents(p, p.chokeBehind * m)
+  of aThrow:
+    let ps = clampP(p, p.throwBehind * skill(p, c, w) * grappleVuln(p, c, o) * interrupt)
+    if ps < 1.0: result.add Ev(kind: evFail, p: 1.0 - ps)
+    if ps > 0.0:
+      let dist = impactEvents(p, c, w, vzBackOfHead, p.force[aThrow] * p.forceScale, p.stunScale, 0.0)
+      for dmg in 0 .. 2:
+        for stun in 0 .. 1:
+          let q = dist[dmg][stun][0]
+          if q > 1e-15: result.add Ev(kind: evSuccess, dmg: dmg, stun: stun == 1, p: ps * q)
+  of aBreak:
+    result.add Ev(kind: evSuccess, p: 1.0)
+  of aTurn:
+    var m = skill(p, c, w) * moveMult(p, c, w) * grappleVuln(p, c, o) * interrupt
+    if oa == aHold: m *= p.turnVsHold
+    result = binaryEvents(p, p.turnBase * m)
+  else:
+    result.add Ev(kind: evNone, p: 1.0)
+
+proc resolveBehind(p: Params, c: Ctx, raws: var seq[Raw]) =
+  let x = Who(c.s.pos.advantaged)    # behind, in control
+  let y = x.other
+  forOrdered(c, p, behindDist):
+    var base = Raw(p: prob, term: -1)
+    var offSrc: array[Who, seq[float]]
+    var kdRisk: array[Who, bool]
+    var choked, threw, broke, turned = false
+    for w in Who:
+      let e = ev[w]
+      let a = c.act[w]
+      case e.kind
+      of evLand: recordLand(p, w, e, base, offSrc, kdRisk)
+      of evMiss, evFail: offSrc[w].add p.commit[a]
+      of evSuccess:
+        case a
+        of aChoke: choked = true
+        of aThrow:
+          threw = true
+          base.dmgTaken[y] += e.dmg
+          if e.stun: base.stun[y] = true
+        of aBreak: broke = true
+        of aTurn: turned = true
+        else: discard
+      else: discard
+    for (kdX, pkX) in coin(if kdRisk[x]: p.knockdown else: 0.0):
+      for (offA, poA) in coin(combineOff(offSrc[wA])):
+        for (offB, poB) in coin(combineOff(offSrc[wB])):
+          let pr = prob * pkX * poA * poB
+          if pr <= 0.0: continue
+          var o = base
+          o.p = pr
+          o.off = [wA: offA, wB: offB]
+          if choked:
+            o.term = ord(if x == wA: tASub else: tBSub)
+            o.tags[x].incl etSubmission
+          elif kdX:
+            o.pos = overPos(y)
+            o.tags[y].incl etKnockdown
+          elif threw:
+            o.pos = overPos(x)
+            o.tags[x].incl etThrow
+          elif turned:
+            # turning while the controller is hurt wins the better grip
+            let hurt = c.s.f[x].cond != cOk or o.stun[x]
+            o.pos = if hurt: clinchPos(if y == wA: 1 else: -1) else: pClinch
+            o.tags[y].incl etTurned
+          elif broke:
+            o.pos = pClose
+          else:
+            o.pos = c.s.pos
+          raws.add o
 
 # ---------------------------------------------------------------------------
 # One fighter down, the other standing over them
@@ -542,45 +794,70 @@ proc resolveOver(p: Params, c: Ctx, raws: var seq[Raw]) =
   let y = x.other                       # down
   let ax = c.act[x]
   let ay = c.act[y]
-  # Upkick only matters against someone coming in.
-  var upkick: seq[Ev]
-  if ay == aUpkick and ax == aFollow:
-    let land = p.hitScale * p.upkickHit * skill(p, c, y) * exposure(p, c, x)
-    upkick = strikeEvents(p, c, y, land, p.dmg1[aUpkick], p.dmg2[aUpkick], 1.0)
-  else:
-    upkick = @[Ev(kind: evNone, p: 1.0)]
-  for e in upkick:
-    var dmgTaken: array[Who, int]
-    var tags: array[Who, set[EventTag]]
-    var staggerX = 0.0
-    if e.kind == evLand:
-      tags[y].incl etLanded
-      dmgTaken[x] = e.dmg
-      if e.dmg > 0:
-        tags[y].incl etDamaged
-        staggerX = p.stagger
-    var outcomes: seq[(float, Pos)]
-    if ax == aFollow:
-      if e.kind == evLand:
-        outcomes.add (1.0, overPos(x))          # kicked off; still standing over them
-      else:
-        let ps = clampP(p, (if ay == aGetUp: p.followVsGetUp else: p.followBase) *
-                           skill(p, c, x))
-        if ps > 0.0: outcomes.add (ps, groundPos(x, gGuard))
-        if ps < 1.0:
-          outcomes.add (1.0 - ps, (if ay == aGetUp: pClose else: overPos(x)))
-    else:  # aBackOff
-      if ay == aGetUp:
-        outcomes.add (1.0, pLong)
-      else:
-        # nobody engages: the referee may stand them up
-        if p.refStandUp > 0.0: outcomes.add (p.refStandUp, pLong)
-        if p.refStandUp < 1.0: outcomes.add (1.0 - p.refStandUp, overPos(x))
-    for (pp, np) in outcomes:
-      for (offX, po) in coin(staggerX):
-        var o = Raw(p: e.p * pp * po, pos: np, dmgTaken: dmgTaken, term: -1, tags: tags)
-        o.off[x] = offX
-        raws.add o
+  # Strikes: the standing fighter's stomp, the downed fighter's upkick.
+  var stomp = @[Ev(kind: evNone, p: 1.0)]
+  if ax == aStomp:
+    var m = skill(p, c, x) * exposure(p, c, y)
+    var fm = 1.0
+    if ay == aCover:
+      m *= p.coverVs[mkDrop]
+      fm *= p.coverForce
+    if ay == aGetUp: m *= 0.7
+    stomp = strikeEvents(p, c, x, aStomp, p.hitScale * p.hitOver[aStomp] * m, fm)
+  var upkick = @[Ev(kind: evNone, p: 1.0)]
+  if ay == aUpkick and ax in {aFollow, aStomp}:
+    let m = skill(p, c, y) * exposure(p, c, x) * (if ax == aStomp: 0.7 else: 1.0)
+    upkick = strikeEvents(p, c, y, aUpkick, p.hitScale * p.hitOver[aUpkick] * m, 1.0)
+  for es in stomp:
+    for eu in upkick:
+      var base = Raw(p: es.p * eu.p, term: -1)
+      var offSrc: array[Who, seq[float]]
+      var kdRisk: array[Who, bool]
+      if es.kind == evLand: recordLand(p, x, es, base, offSrc, kdRisk)
+      if es.kind == evMiss: offSrc[x].add p.commit[aStomp]
+      if eu.kind == evLand: recordLand(p, y, eu, base, offSrc, kdRisk)
+      # Movement outcomes
+      var outcomes: seq[(float, Pos, int)]   # prob, position, terminal
+      case ax
+      of aFlee:
+        var ps = p.fleeOver * moveMult(p, c, x)
+        if ay == aGetUp: ps *= 0.8
+        ps = clampP(p, ps)
+        if ps > 0.0: outcomes.add (ps, pLong, ord(tAEscape))
+        if ps < 1.0: outcomes.add (1.0 - ps, (if ay == aGetUp: pClose else: overPos(x)), -1)
+      of aFollow:
+        if eu.kind == evLand:
+          outcomes.add (1.0, overPos(x), -1)          # kicked off
+        else:
+          let ps = clampP(p, (if ay == aGetUp: p.followVsGetUp else: p.followBase) * skill(p, c, x))
+          if ps > 0.0: outcomes.add (ps, groundPos(x, gGuard), -1)
+          if ps < 1.0: outcomes.add (1.0 - ps, (if ay == aGetUp: pClose else: overPos(x)), -1)
+      of aStomp:
+        if ay == aGetUp:
+          let ps = clampP(p, p.getUpVsStrike * skill(p, c, y))
+          if ps > 0.0: outcomes.add (ps, pClose, -1)
+          if ps < 1.0: outcomes.add (1.0 - ps, overPos(x), -1)
+        else:
+          outcomes.add (1.0, overPos(x), -1)
+      else:  # aBackOff
+        if ay == aGetUp:
+          outcomes.add (1.0, pLong, -1)
+        elif c.mode == mSport and p.refStandUp > 0.0:
+          outcomes.add (p.refStandUp, pLong, -1)
+          outcomes.add (1.0 - p.refStandUp, overPos(x), -1)
+        else:
+          outcomes.add (1.0, overPos(x), -1)
+      for (pp, np, term) in outcomes:
+        for (offX, po) in coin(combineOff(offSrc[x])):
+          var o = base
+          o.p = base.p * pp * po
+          if o.p <= 0.0: continue
+          o.pos = np
+          o.off[x] = offX
+          if term >= 0:
+            o.term = term
+            o.tags[x].incl etEscaped
+          raws.add o
 
 # ---------------------------------------------------------------------------
 # Ground
@@ -594,30 +871,30 @@ proc resolveGround(p: Params, c: Ctx, raws: var seq[Raw]) =
   let ax = c.act[x]
   let ay = c.act[y]
 
-  # Top fighter's event
   var top: seq[Ev]
   case ax
   of aPound:
     var m = skill(p, c, x) * exposure(p, c, y)
-    if ay == aCover: m *= p.coverGround
+    var fm = 1.0
+    if ay == aCover:
+      m *= p.coverGround
+      fm *= p.coverForce
     let base = case k
       of gGuard: p.poundGuard
       of gMount: p.poundMount
       of gBack: p.poundBack
-    top = strikeEvents(p, c, x, p.hitScale * base * m, p.dmg1[aPound], p.dmg2[aPound],
-                       (if ay == aCover: p.coverDmg else: 1.0))
+    top = strikeEvents(p, c, x, aPound, p.hitScale * base * m, fm)
   of aPass:
     top = binaryEvents(p, (if k == gGuard: p.passGuard else: p.passMount) * skill(p, c, x))
-  of aSubmit:
-    var m = skill(p, c, x)
+  of aChoke:
+    var m = skill(p, c, x) * grappleVuln(p, c, y)
     if ay == aCover: m *= p.coverGround
     top = binaryEvents(p, (if k == gMount: p.subMount else: p.subBack) * m)
   of aDisengage:
-    top = binaryEvents(p, p.disengage)
+    top = binaryEvents(p, p.disengage * moveMult(p, c, x))
   else:
     top = @[Ev(kind: evNone, p: 1.0)]
 
-  # Bottom fighter's event
   var bottom: seq[Ev]
   var bm = skill(p, c, y)
   if ax == aHold: bm *= p.holdControl
@@ -639,39 +916,35 @@ proc resolveGround(p: Params, c: Ctx, raws: var seq[Raw]) =
     for eb in bottom:
       let prob = et.p * eb.p
       if prob <= 0.0: continue
-      var dmgTaken: array[Who, int]
-      var tags: array[Who, set[EventTag]]
-      if et.kind == evLand:
-        tags[x].incl etLanded
-        dmgTaken[y] = et.dmg
-        if et.dmg > 0: tags[x].incl etDamaged
-      # Terminal: submissions
-      if ax == aSubmit and et.kind == evSuccess:
-        var o = Raw(p: prob, pos: pos, term: ord(if x == wA: tASub else: tBSub), tags: tags)
-        o.tags[x].incl etSubmission
-        raws.add o
+      var base = Raw(p: prob, pos: pos, term: -1)
+      var offSrc: array[Who, seq[float]]
+      var kdRisk: array[Who, bool]
+      if et.kind == evLand: recordLand(p, x, et, base, offSrc, kdRisk)
+      if ax == aChoke and et.kind == evSuccess:
+        base.term = ord(if x == wA: tASub else: tBSub)
+        base.tags[x].incl etSubmission
+        raws.add base
         continue
       if ay == aGuardSub and eb.kind == evSuccess:
-        var o = Raw(p: prob, pos: pos, term: ord(if y == wA: tASub else: tBSub), tags: tags)
-        o.tags[y].incl etSubmission
-        raws.add o
+        base.term = ord(if y == wA: tASub else: tBSub)
+        base.tags[y].incl etSubmission
+        raws.add base
         continue
-      # Position changes, in priority order
       var np = pos
       var failCoin = 0.0
       var failPos = pos
       if ay == aSweep and eb.kind == evSuccess:
         np = groundPos(y, gGuard)
-        tags[y].incl etSweep
+        base.tags[y].incl etSweep
       elif ay == aEscape and eb.kind == evSuccess:
         np = if k == gGuard: pLong else: groundPos(x, gGuard)
-        tags[y].incl etEscape
+        base.tags[y].incl etEscape
       elif ax == aPass and et.kind == evSuccess:
         np = groundPos(x, if k == gGuard: gMount else: gBack)
-        tags[x].incl etPass
+        base.tags[x].incl etPass
       elif ax == aDisengage and et.kind == evSuccess:
         np = pLong
-      elif ax == aSubmit and et.kind == evFail:
+      elif ax == aChoke and et.kind == evFail:
         failCoin = p.subFailEscape
         failPos = groundPos(x, gGuard)
       elif ay == aGuardSub and eb.kind == evFail:
@@ -681,24 +954,24 @@ proc resolveGround(p: Params, c: Ctx, raws: var seq[Raw]) =
         # standing up from guard or turning out of mount exposes the back
         failCoin = if k == gGuard: p.standUpBack else: p.mountTurnBack
         failPos = groundPos(x, gBack)
-      elif ax == aHold and ay == aCover:
-        failCoin = p.refStandUp     # stalling: the referee may restart them standing
+      elif ax == aHold and ay == aCover and c.mode == mSport:
+        failCoin = p.refStandUp     # stalling: the referee restarts them standing
         failPos = pLong
       for (failed, pf) in coin(failCoin):
-        var o = Raw(p: prob * pf, pos: (if failed: failPos else: np),
-                    dmgTaken: dmgTaken, term: -1, tags: tags)
+        var o = base
+        o.p = prob * pf
+        o.pos = if failed: failPos else: np
         if failed:
-          if ax == aSubmit: o.tags[y].incl etEscape
-          elif ay == aGuardSub or ay == aEscape: o.tags[x].incl etPass
+          if ax == aChoke: o.tags[y].incl etEscape
+          elif ay in {aGuardSub, aEscape}: o.tags[x].incl etPass
         raws.add o
 
 # ---------------------------------------------------------------------------
-# Damage, fatigue, terminal checks
+# Damage, condition, hips, terminal checks
 # ---------------------------------------------------------------------------
 
 proc finish(p: Params, c: Ctx, raws: seq[Raw], detailed: bool): seq[Outcome] =
   let dl = c.d.damageLevels
-  let fl = c.d.fatigueLevels
 
   proc emit(res: var seq[Outcome], prob: float, target: int32,
             tags: array[Who, set[EventTag]], detailed: bool) =
@@ -710,29 +983,13 @@ proc finish(p: Params, c: Ctx, raws: seq[Raw], detailed: bool): seq[Outcome] =
           return
     res.add Outcome(p: prob, target: target, tags: tags)
 
-  # fatigue distribution per fighter: (delta, prob)
-  var fatDist: array[Who, seq[(int, float)]]
-  for w in Who:
-    let a = c.act[w]
-    var up = p.cost[a]
-    if c.s.pos in {pMountA, pMountB, pBackA, pBackB} and not c.s.pos.isTop(w):
-      up += p.bottomFatigue
-    up = clamp(up, 0.0, 1.0)
-    let f = c.s.f[w].fat
-    if f >= fl - 1: up = 0.0
-    var down = if f > 0: p.recover[a] else: 0.0
-    down = clamp(down, 0.0, 1.0 - up)
-    if up > 0.0: fatDist[w].add (1, up)
-    if down > 0.0: fatDist[w].add (-1, down)
-    if 1.0 - up - down > 0.0: fatDist[w].add (0, 1.0 - up - down)
-
   for r in raws:
     if r.p <= 0.0: continue
-    if r.term >= 0:
-      emit(result, r.p, terminalCode(Terminal(r.term)), r.tags, detailed)
-      continue
     let na = c.s.f[wA].dmg + r.dmgTaken[wA]
     let nb = c.s.f[wB].dmg + r.dmgTaken[wB]
+    if r.term >= 0 and Terminal(r.term) in {tASub, tBSub}:
+      emit(result, r.p, terminalCode(Terminal(r.term)), r.tags, detailed)
+      continue
     if na >= dl and nb >= dl:
       emit(result, r.p, terminalCode(tDraw), r.tags, detailed)
       continue
@@ -742,38 +999,54 @@ proc finish(p: Params, c: Ctx, raws: seq[Raw], detailed: bool): seq[Outcome] =
     if nb >= dl:
       emit(result, r.p, terminalCode(tAKO), r.tags, detailed)
       continue
-    for (dfa, pfa) in fatDist[wA]:
-      for (dfb, pfb) in fatDist[wB]:
-        var ns = State(pos: r.pos)
-        ns.f[wA] = Fighter(dmg: na, fat: c.s.f[wA].fat + dfa, off: r.off[wA])
-        ns.f[wB] = Fighter(dmg: nb, fat: c.s.f[wB].fat + dfb, off: r.off[wB])
-        ns = canonical(ns)
-        emit(result, r.p * pfa * pfb, int32(encode(ns, c.d)), r.tags, detailed)
+    if r.term >= 0:      # escape
+      emit(result, r.p, terminalCode(Terminal(r.term)), r.tags, detailed)
+      continue
+    var ns = State(pos: r.pos)
+    for w in Who:
+      let old = c.s.f[w]
+      ns.f[w] = Fighter(
+        dmg: (if w == wA: na else: nb),
+        cond: (if r.stun[w]: cStunned elif r.off[w]: cOff else: cOk),
+        coil: nextCoil(old, c.act[w]),
+        legs: old.legs or r.legs[w])
+    ns = canonical(ns)
+    emit(result, r.p, int32(encode(ns, c.d)), r.tags, detailed)
 
 proc resolve*(p: Params, s: State, actA, actB: Action, d: Dims,
-              detailed = false): seq[Outcome] =
+              mode = mSelfDefense, detailed = false): seq[Outcome] =
   ## Distribution over what happens when A plays `actA` and B plays `actB`
   ## simultaneously in `s`. With `detailed`, outcomes are not merged by target
   ## and keep their event tags (for statistics).
-  let c = Ctx(s: s, act: [actA, actB], d: d)
+  let c = Ctx(s: s, act: [actA, actB], d: d, mode: mode)
   var raws: seq[Raw]
   if s.pos in StandingPositions: resolveStanding(p, c, raws)
   elif s.pos in ClinchPositions: resolveClinch(p, c, raws)
+  elif s.pos in BehindPositions: resolveBehind(p, c, raws)
   elif s.pos in OverPositions: resolveOver(p, c, raws)
   else: resolveGround(p, c, raws)
   finish(p, c, raws, detailed)
 
-proc decisionValue*(p: Params, s: State): float =
-  ## P(A wins) if the fight is stopped now and goes to the judges: damage
-  ## difference plus who controls the position. Because the stop can come on
-  ## any beat, the expected decision is the time-average of this along the
-  ## fight, so holding top position works like control time on a scorecard.
-  var v = 0.5 + p.decisionWeight * float(s.f[wB].dmg - s.f[wA].dmg)
-  let adv = s.pos.advantaged
-  if adv >= 0:
-    let bonus = case s.pos
-      of pGuardA, pGuardB, pOverA, pOverB: p.decisionTop
-      of pMountA, pMountB, pBackA, pBackB: p.decisionDominant
-      else: 0.0
-    v += (if adv == ord(wA): bonus else: -bonus)
-  clamp(v, 0.0, 1.0)
+proc stopValue*(p: Params, s: State, mode: Mode): float =
+  ## Value for A if the encounter ends now without a finish.
+  case mode
+  of mSport:
+    # Judges: damage difference plus who controls the position. Because the
+    # stop can come on any beat, the expected decision is the time-average
+    # of this along the fight, so control time counts like on a scorecard.
+    var v = 0.5 + p.decisionWeight * float(s.f[wB].dmg - s.f[wA].dmg)
+    let adv = s.pos.advantaged
+    if adv >= 0:
+      let bonus = case s.pos
+        of pGuardA, pGuardB, pOverA, pOverB, pBehindA, pBehindB: p.decisionTop
+        of pMountA, pMountB, pBackA, pBackB: p.decisionDominant
+        else: 0.0
+      v += (if adv == ord(wA): bonus else: -bonus)
+    clamp(v, 0.0, 1.0)
+  of mSelfDefense:
+    # Your safety: the harm you carry and how exposed you are when it ends.
+    var v = 1.0 - p.harmPerLevel * s.f[wA].dmg.float
+    if s.pos in {pOverB, pGuardB, pMountB, pBackB}: v -= p.harmDown
+    if s.pos in {pMountB, pBackB, pBehindB}: v -= p.harmPinned
+    if s.f[wA].legs: v -= 0.5 * p.harmPerLevel
+    clamp(v, 0.0, 1.0)

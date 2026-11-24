@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NIM_VERSION: 2.2.4
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nim
+        run: |
+          curl -sSfL "https://nim-lang.org/download/nim-${NIM_VERSION}-linux_x64.tar.xz" | tar -xJ -C "$HOME"
+          echo "$HOME/nim-${NIM_VERSION}/bin" >> "$GITHUB_PATH"
+
+      - name: Install dependencies
+        run: nimble install -y db_connector
+
+      - name: Type-check every module and example
+        run: for f in src/*.nim examples/*.nim; do nim check --hints:off "$f"; done
+
+      - name: Build
+        run: |
+          nim c -d:release --hints:off -o:bin/fightsolve src/fightsolve.nim
+          nim c -d:release --hints:off -o:bin/fightBase src/fightBase.nim
+
+      - name: Tests
+        run: for f in tests/test_*.nim; do nim c -r --hints:off "$f"; done
+
+      - name: Solver smoke run
+        run: bin/fightsolve solve --pos Mid --damage-levels 2 --quiet

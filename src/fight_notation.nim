@@ -2,7 +2,11 @@
 ## Deterministic, compact text representation of any fight state
 
 import fight_types
-import std/[strutils, strformat]
+import std/[options, strutils, strformat]
+
+## Fatigue and damage are runtime overlays, not part of a position (see
+## OVERLAY_ARCHITECTURE.md), so the functions below take the two fighters'
+## overlays next to the position. The text format is unchanged.
 
 ## FPN FORMAT:
 ## fighter_a/fighter_b/distance/turn/movecount
@@ -47,22 +51,27 @@ proc charToStance(c: char): StanceKind =
   of 'z': skWrestling
   else: skNeutral
 
-proc limbToChar(limb: LimbStatus): char =
-  if limb.damaged > 0.5 and limb.extended:
+proc limbToChar(limb: LimbPosition, damaged: float): char =
+  if damaged > 0.5 and limb.extended:
     'B'
-  elif limb.damaged > 0.5:
+  elif damaged > 0.5:
     'X'
   elif limb.extended:
     'E'
   else:
     '-'
 
-proc charToLimb(c: char): LimbStatus =
+proc charToLimb(c: char): (LimbPosition, float) =
+  ## The limb's position and its damage (for the overlay).
   case c:
-  of 'B': LimbStatus(free: false, extended: true, damaged: 0.6, angle: 0.0)
-  of 'X': LimbStatus(free: false, extended: false, damaged: 0.6, angle: 0.0)
-  of 'E': LimbStatus(free: true, extended: true, damaged: 0.0, angle: 0.0)
-  else:   LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0)
+  of 'B': (LimbPosition(free: false, extended: true, angle: 0.0), 0.6)
+  of 'X': (LimbPosition(free: false, extended: false, angle: 0.0), 0.6)
+  of 'E': (LimbPosition(free: true, extended: true, angle: 0.0), 0.0)
+  else:   (LimbPosition(free: true, extended: false, angle: 0.0), 0.0)
+
+proc limbsToFPN(f: Fighter, o: RuntimeOverlay): string =
+  $limbToChar(f.leftArm, o.leftArmDamage) & $limbToChar(f.rightArm, o.rightArmDamage) &
+  $limbToChar(f.leftLeg, o.leftLegDamage) & $limbToChar(f.rightLeg, o.rightLegDamage)
 
 proc distanceToChar(dist: DistanceKind): char =
   case dist:
@@ -81,12 +90,12 @@ proc charToDistance(c: char): DistanceKind =
   of 'v': VeryLong
   else: Medium
 
-proc fighterToFPN(f: Fighter): string =
-  ## Convert fighter to compact notation
+proc fighterToFPN(f: Fighter, o: RuntimeOverlay): string =
+  ## Convert fighter (position + overlay) to compact notation
   let stance = stanceToChar(f.pos.stance)
   let balance = int(f.pos.balance * 100.0)
-  let fatigue = int(f.fatigue * 100.0)
-  let damage = int(f.damage * 100.0)
+  let fatigue = int(o.fatigue * 100.0)
+  let damage = int(o.damage * 100.0)
   let linearMom = int(f.momentum.linear * 10.0)  # Store as deciseconds
   let rotMom = int(f.momentum.rotational)
   let hipRot = int(f.biomech.hipRotation)
@@ -95,14 +104,11 @@ proc fighterToFPN(f: Fighter): string =
   let recovering = if f.biomech.recovering: '1' else: '0'
   let frames = f.biomech.recoveryFrames
 
-  let limbs = $limbToChar(f.leftArm) &
-              $limbToChar(f.rightArm) &
-              $limbToChar(f.leftLeg) &
-              $limbToChar(f.rightLeg)
+  let limbs = limbsToFPN(f, o)
 
   result = fmt"{stance}.{balance}.{fatigue}.{damage}.{linearMom},{rotMom}.{hipRot},{torsoRot},{weight},{recovering},{frames}.{limbs}"
 
-proc fpnToFighter(fpn: string): Fighter =
+proc fpnToFighter(fpn: string): (Fighter, RuntimeOverlay) =
   ## Parse fighter from FPN notation
   let parts = fpn.split('.')
   if parts.len != 7:
@@ -125,20 +131,25 @@ proc fpnToFighter(fpn: string): Fighter =
   let frames = parseInt(biomechParts[4])
 
   let limbs = parts[6]
+  let (la, laDmg) = charToLimb(limbs[0])
+  let (ra, raDmg) = charToLimb(limbs[1])
+  let (ll, llDmg) = charToLimb(limbs[2])
+  let (rl, rlDmg) = charToLimb(limbs[3])
 
-  result = Fighter(
+  result[1] = RuntimeOverlay(fatigue: fatigue, damage: damage,
+                             leftArmDamage: laDmg, rightArmDamage: raDmg,
+                             leftLegDamage: llDmg, rightLegDamage: rlDmg)
+  result[0] = Fighter(
     pos: Position3D(
       x: 0.0, y: 0.0, z: 0.0,  # Position not stored in FPN (only stance/balance matter)
       facing: 0.0,
       stance: stance,
       balance: balance
     ),
-    leftArm: charToLimb(limbs[0]),
-    rightArm: charToLimb(limbs[1]),
-    leftLeg: charToLimb(limbs[2]),
-    rightLeg: charToLimb(limbs[3]),
-    fatigue: fatigue,
-    damage: damage,
+    leftArm: la,
+    rightArm: ra,
+    leftLeg: ll,
+    rightLeg: rl,
     liveSide: Centerline,  # Not stored in basic FPN
     control: None,
     momentum: Momentum(
@@ -155,25 +166,34 @@ proc fpnToFighter(fpn: string): Fighter =
     )
   )
 
-proc toFPN*(state: FightState, currentTurn: FighterID = FighterA): string =
-  ## Convert complete fight state to FPN notation
-  let fighterA = fighterToFPN(state.a)
-  let fighterB = fighterToFPN(state.b)
+proc toFPN*(state: FightState, currentTurn: FighterID = FighterA,
+            overlayA = createFreshOverlay(), overlayB = createFreshOverlay()): string =
+  ## Convert a position (plus both fighters' overlays) to FPN notation
+  let fighterA = fighterToFPN(state.a, overlayA)
+  let fighterB = fighterToFPN(state.b, overlayB)
   let dist = distanceToChar(state.distance)
   let turn = if currentTurn == FighterA: 'A' else: 'B'
   let moves = state.sequenceLength
 
   result = fmt"{fighterA}/{fighterB}/{dist}/{turn}/{moves}"
 
-proc fromFPN*(fpn: string): tuple[state: FightState, turn: FighterID] =
-  ## Parse FPN notation into fight state
+proc toFPN*(rs: RuntimeFightState, currentTurn: FighterID = FighterA): string =
+  toFPN(rs.position, currentTurn, rs.overlayA, rs.overlayB)
+
+proc fromFPN*(fpn: string): tuple[state: FightState, turn: FighterID,
+                                  overlayA, overlayB: RuntimeOverlay] =
+  ## Parse FPN notation into a position and both fighters' overlays
   let parts = fpn.split('/')
   if parts.len != 5:
     raise newException(ValueError, "Invalid FPN: " & fpn)
 
+  let (fa, oa) = fpnToFighter(parts[0])
+  let (fb, ob) = fpnToFighter(parts[1])
+  result.overlayA = oa
+  result.overlayB = ob
   result.state = FightState(
-    a: fpnToFighter(parts[0]),
-    b: fpnToFighter(parts[1]),
+    a: fa,
+    b: fb,
     distance: charToDistance(parts[2][0]),
     sequenceLength: parseInt(parts[4]),
     terminal: false,
@@ -270,7 +290,8 @@ proc fromFMN*(fmn: string): FightRecord =
 ## Visual Board Representation (like ASCII chess boards)
 ## ============================================================================
 
-proc toVisualBoard*(state: FightState, currentTurn: FighterID = FighterA): string =
+proc toVisualBoard*(state: FightState, currentTurn: FighterID = FighterA,
+                    overlayA = createFreshOverlay(), overlayB = createFreshOverlay()): string =
   ## Create ASCII visualization of fight state
   result = ""
   result.add("╔═══════════════════════════════════════════════════════════╗\n")
@@ -279,10 +300,9 @@ proc toVisualBoard*(state: FightState, currentTurn: FighterID = FighterA): strin
 
   # Fighter A
   result.add(fmt"║ Fighter A ({stanceToChar(state.a.pos.stance)})                                               ║" & "\n")
-  result.add(fmt"║   Balance: {int(state.a.pos.balance*100):3}%  Fatigue: {int(state.a.fatigue*100):3}%  Damage: {int(state.a.damage*100):3}%   ║" & "\n")
+  result.add(fmt"║   Balance: {int(state.a.pos.balance*100):3}%  Fatigue: {int(overlayA.fatigue*100):3}%  Damage: {int(overlayA.damage*100):3}%   ║" & "\n")
 
-  let aLimbs = $limbToChar(state.a.leftArm) & $limbToChar(state.a.rightArm) &
-               $limbToChar(state.a.leftLeg) & $limbToChar(state.a.rightLeg)
+  let aLimbs = limbsToFPN(state.a, overlayA)
   result.add(fmt"║   Limbs: {aLimbs}  Momentum: {int(state.a.momentum.linear*10):+3} lin, {int(state.a.momentum.rotational):+3} rot ║" & "\n")
 
   # Distance
@@ -299,10 +319,9 @@ proc toVisualBoard*(state: FightState, currentTurn: FighterID = FighterA): strin
 
   # Fighter B
   result.add(fmt"║ Fighter B ({stanceToChar(state.b.pos.stance)})                                               ║" & "\n")
-  result.add(fmt"║   Balance: {int(state.b.pos.balance*100):3}%  Fatigue: {int(state.b.fatigue*100):3}%  Damage: {int(state.b.damage*100):3}%   ║" & "\n")
+  result.add(fmt"║   Balance: {int(state.b.pos.balance*100):3}%  Fatigue: {int(overlayB.fatigue*100):3}%  Damage: {int(overlayB.damage*100):3}%   ║" & "\n")
 
-  let bLimbs = $limbToChar(state.b.leftArm) & $limbToChar(state.b.rightArm) &
-               $limbToChar(state.b.leftLeg) & $limbToChar(state.b.rightLeg)
+  let bLimbs = limbsToFPN(state.b, overlayB)
   result.add(fmt"║   Limbs: {bLimbs}  Momentum: {int(state.b.momentum.linear*10):+3} lin, {int(state.b.momentum.rotational):+3} rot ║" & "\n")
 
   # Footer
@@ -311,19 +330,26 @@ proc toVisualBoard*(state: FightState, currentTurn: FighterID = FighterA): strin
   result.add(fmt"║ Turn: {turnStr}   Move: {state.sequenceLength:3}                                      ║" & "\n")
   result.add("╚═══════════════════════════════════════════════════════════╝\n")
 
-proc toCompactBoard*(state: FightState): string =
+proc toCompactBoard*(state: FightState, overlayA = createFreshOverlay(),
+                     overlayB = createFreshOverlay()): string =
   ## Ultra-compact single-line representation
   let aStance = stanceToChar(state.a.pos.stance)
   let bStance = stanceToChar(state.b.pos.stance)
   let dist = distanceToChar(state.distance)
   let aBal = int(state.a.pos.balance * 10)
   let bBal = int(state.b.pos.balance * 10)
-  let aFat = int(state.a.fatigue * 10)
-  let bFat = int(state.b.fatigue * 10)
-  let aDmg = int(state.a.damage * 10)
-  let bDmg = int(state.b.damage * 10)
+  let aFat = int(overlayA.fatigue * 10)
+  let bFat = int(overlayB.fatigue * 10)
+  let aDmg = int(overlayA.damage * 10)
+  let bDmg = int(overlayB.damage * 10)
 
   result = fmt"A:{aStance}{aBal}{aFat}{aDmg} <{dist}> B:{bStance}{bBal}{bFat}{bDmg} #{state.sequenceLength}"
+
+proc toVisualBoard*(rs: RuntimeFightState, currentTurn: FighterID = FighterA): string =
+  toVisualBoard(rs.position, currentTurn, rs.overlayA, rs.overlayB)
+
+proc toCompactBoard*(rs: RuntimeFightState): string =
+  toCompactBoard(rs.position, rs.overlayA, rs.overlayB)
 
 ## ============================================================================
 ## Examples and Tests
@@ -334,12 +360,10 @@ when isMainModule:
   let testState = FightState(
     a: Fighter(
       pos: Position3D(x: -1.5, y: 0.0, z: 0.0, facing: 90.0, stance: skOrthodox, balance: 0.95),
-      leftArm: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      rightArm: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      leftLeg: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      rightLeg: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      fatigue: 0.15,
-      damage: 0.0,
+      leftArm: LimbPosition(free: true, extended: false, angle: 0.0),
+      rightArm: LimbPosition(free: true, extended: false, angle: 0.0),
+      leftLeg: LimbPosition(free: true, extended: false, angle: 0.0),
+      rightLeg: LimbPosition(free: true, extended: false, angle: 0.0),
       liveSide: Centerline,
       control: None,
       momentum: Momentum(linear: 0.3, rotational: 5.0, decayRate: 0.1),
@@ -353,12 +377,10 @@ when isMainModule:
     ),
     b: Fighter(
       pos: Position3D(x: 1.5, y: 0.0, z: 0.0, facing: 270.0, stance: skSouthpaw, balance: 0.90),
-      leftArm: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      rightArm: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      leftLeg: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      rightLeg: LimbStatus(free: true, extended: false, damaged: 0.0, angle: 0.0),
-      fatigue: 0.20,
-      damage: 0.05,
+      leftArm: LimbPosition(free: true, extended: false, angle: 0.0),
+      rightArm: LimbPosition(free: true, extended: false, angle: 0.0),
+      leftLeg: LimbPosition(free: true, extended: false, angle: 0.0),
+      rightLeg: LimbPosition(free: true, extended: false, angle: 0.0),
       liveSide: Centerline,
       control: None,
       momentum: Momentum(linear: -0.1, rotational: 0.0, decayRate: 0.1),
@@ -376,14 +398,23 @@ when isMainModule:
     winner: none(FighterID)
   )
 
+  var overlayA = createFreshOverlay()
+  overlayA.fatigue = 0.15
+  var overlayB = createFreshOverlay()
+  overlayB.fatigue = 0.20
+  overlayB.damage = 0.05
+
   echo "=== FPN Test ==="
-  let fpn = toFPN(testState, FighterA)
+  let fpn = toFPN(testState, FighterA, overlayA, overlayB)
   echo "FPN: ", fpn
+  let parsed = fromFPN(fpn)
+  doAssert toFPN(parsed.state, parsed.turn, parsed.overlayA, parsed.overlayB) == fpn,
+    "FPN must round-trip"
   echo ""
 
   echo "=== Visual Board ==="
-  echo toVisualBoard(testState, FighterA)
+  echo toVisualBoard(testState, FighterA, overlayA, overlayB)
   echo ""
 
   echo "=== Compact Board ==="
-  echo toCompactBoard(testState)
+  echo toCompactBoard(testState, overlayA, overlayB)

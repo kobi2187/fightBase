@@ -2,6 +2,41 @@
 
 A research-oriented combat simulation engine designed to model realistic fight sequences, analyze martial arts techniques, and build a comprehensive "tablebase" of fighting positions similar to chess endgame databases.
 
+## Self-defense playbook and exact solver
+
+The tablebase idea is implemented as an **exact equilibrium solver** in
+`src/solver/` (command: `fightsolve`). It models a confrontation as a
+simultaneous-move stochastic game whose positions carry everything that
+decides the outcome (geometry, damage, balance/stun, hip loading, leg
+injuries), uses the target zones of `src/vulnerabilities.nim` for weak points,
+and solves it exactly with a certificate.
+
+Its main output is a **static self-defense playbook**:
+
+- [`docs/playbook/PLAYBOOK.md`](docs/playbook/PLAYBOOK.md): best responses,
+  answers to specific attacks, scored combinations, and what each weak point
+  and way of generating force is worth, for ten common situations and three
+  attacker types, each with a robustness check
+- `docs/playbook/index.html`: the same content as a self-contained page
+- `docs/playbook/playbook.json`: the data
+
+How it works, what it assumes and where it stops being reliable:
+[`docs/SOLVER.md`](docs/SOLVER.md).
+
+```bash
+nimble install -y db_connector              # once
+nim c -d:release -o:bin/fightsolve src/fightsolve.nim
+bin/fightsolve solve --pos Mid --a trained --b brawler
+bin/fightsolve explain --pos BehindB        # held from behind
+bin/fightsolve playbook                     # regenerate docs/playbook (about 40 min)
+nimble test                                 # 35 tests
+```
+
+The sections below describe the original simulator and tree generator. The
+tree generator (`game_tree.nim`) is superseded by the solver: its float-valued
+positions never repeat and its moves sample random outcomes, so it cannot
+close into a tablebase (see `docs/SOLVER.md`).
+
 ## Overview
 
 FightBase simulates martial arts combat using:
@@ -53,7 +88,8 @@ Moves are defined as objects with:
 git clone <repo-url>
 cd fightBase
 
-# Build with Nim
+# Build with Nim (2.0 or newer; the SQLite storage needs db_connector)
+nimble install -y db_connector
 nim c -d:release src/fightBase.nim
 
 # Or use nimble
@@ -342,14 +378,14 @@ if not canDoSomething(fighter): return false
 - [x] Unknown state logging
 - [x] Text representation
 - [x] Batch simulation
-- [ ] Visualization layer (stick figures)
-- [ ] Backward propagation engine
-- [ ] Win distance computation
-- [ ] Style profile system
+- [x] Visualization layer (stick figures, SVG from FPN)
+- [x] Backward propagation engine (exact equilibrium solver, `src/solver/`)
+- [x] Win values for every position (probability of a safe outcome, with a certificate)
+- [x] Style profile system (defender and attacker profiles)
 - [ ] Move library expansion (100+ techniques)
 - [ ] Multi-threaded simulation
-- [ ] Analysis tools (heatmaps, charts)
-- [ ] Interactive state explorer
+- [x] Analysis tools (technique, target and mechanism ablation; sensitivity; matchups)
+- [x] State explorer (`fightsolve explain`, static playbook page)
 - [ ] Human correction interface
 
 ## Research Applications

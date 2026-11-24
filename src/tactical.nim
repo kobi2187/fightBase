@@ -2,6 +2,7 @@
 
 import fight_types
 import vulnerabilities
+import std/strutils
 
 proc scoreMoveByTarget*(
   move: Move,
@@ -80,7 +81,8 @@ proc scoreMoveByTarget*(
 proc calculateOptionAdvantage*(
   state: FightState,
   who: FighterID,
-  viableMoves: seq[Move]
+  viableMoves: seq[Move],
+  opponentOverlay = createFreshOverlay()
 ): float =
   ## Calculate how many more options we have than opponent
   ## This implements the "tactical liquidity" concept
@@ -88,9 +90,9 @@ proc calculateOptionAdvantage*(
   let ourOptions = viableMoves.len
 
   # Estimate opponent's options (would need actual calculation)
-  # For now, use balance and fatigue as proxy
+  # For now, use balance and fatigue (from the runtime overlay) as proxy
   let opponent = if who == FighterA: state.b else: state.a
-  let estimatedOpponentOptions = int(10.0 * opponent.pos.balance * (1.0 - opponent.fatigue))
+  let estimatedOpponentOptions = int(10.0 * opponent.pos.balance * (1.0 - opponentOverlay.fatigue))
 
   result = float(ourOptions) / float(max(estimatedOpponentOptions, 1))
 
@@ -98,7 +100,9 @@ proc scoreMoveTactically*(
   move: Move,
   state: FightState,
   who: FighterID,
-  viableMoves: seq[Move]
+  viableMoves: seq[Move],
+  ownOverlay = createFreshOverlay(),
+  opponentOverlay = createFreshOverlay()
 ): float =
   ## Complete tactical scoring combining target selection and option advantage
 
@@ -114,13 +118,13 @@ proc scoreMoveTactically*(
     of VeryLong: 3.0
 
   # Defensive fighter prefers low exposure
-  let preferLowExposure = attacker.damage > 0.3 or attacker.fatigue > 0.5
+  let preferLowExposure = ownOverlay.damage > 0.3 or ownOverlay.fatigue > 0.5
 
   # Base score from target selection
   var score = scoreMoveByTarget(move, attacker, defender, distanceMeters, preferLowExposure)
 
   # Multiply by option advantage
-  let optionAdv = calculateOptionAdvantage(state, who, viableMoves)
+  let optionAdv = calculateOptionAdvantage(state, who, viableMoves, opponentOverlay)
   if move.optionsCreated > 0:
     score *= (1.0 + optionAdv * 0.2)  # Reward moves that maintain option advantage
 

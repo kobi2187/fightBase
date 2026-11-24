@@ -1,7 +1,8 @@
-## What optimal play looks like: how fights end, where they are fought, which
-## techniques get used and how often they land. Everything is computed
-## exactly from the solved strategies (expected values over the Markov chain
-## they induce), not by sampling.
+## What optimal play looks like: how encounters end, where they are fought,
+## which techniques get used, how often they land, which body zones they hit
+## and what that does. Everything is computed exactly from the solved
+## strategies (expected values over the Markov chain they induce), not by
+## sampling.
 
 import std/[algorithm, math, strformat, strutils, tables]
 import core, params, rules, game, solve
@@ -9,22 +10,20 @@ import core, params, rules, game, solve
 type
   FightStats* = object
     beats*: float                          ## expected beats played
-    decision*: float                       ## P(stopped -> decision)
-    decisionWinA*: float                   ## P(A wins on the cards)
-    finishes*: array[Terminal, float]      ## P(fight ends this way)
-    winA*: float                           ## total P(A wins), = start value
+    stopped*: float                        ## P(ends without a finish)
+    stopValue*: float                      ## expected value A collects from stoppages
+    finishes*: array[Terminal, float]      ## P(ends this way)
+    valueA*: float                         ## total value for A (= start value)
     uses*: array[Who, array[Action, float]]    ## expected times each action is chosen
     events*: array[Who, array[EventTag, float]] ## expected count of each event
     landed*: array[Who, array[Action, float]]   ## expected landed strikes per technique
+    zoneHits*: array[Who, array[VulnerabilityZone, float]] ## landed strikes per target zone
     timeIn*: array[Pos, float]             ## expected beats spent in each position
 
-proc occupancy*(g: Game, sol: Solution, tol = 1e-12): seq[float] =
-  ## Expected number of times each position is visited, starting from the
-  ## opening, before the fight ends (stop or finish).
+proc flows(g: Game, sol: Solution): seq[seq[(int32, float)]] =
+  ## Expected next-state flow under the equilibrium mix (support pairs only).
   let n = g.states.len
-  let eps = g.params.stopChance
-  # Expected next-state flow under the equilibrium mix, support pairs only.
-  var flowFrom: seq[seq[(int32, float)]] = newSeq[seq[(int32, float)]](n)
+  result = newSeq[seq[(int32, float)]](n)
   for s in 0 ..< n:
     let m = g.nActs(wA, s)
     let k = g.nActs(wB, s)
@@ -42,11 +41,17 @@ proc occupancy*(g: Game, sol: Solution, tol = 1e-12): seq[float] =
           let t = g.target[o]
           if t >= 0:
             acc.mgetOrPut(t, 0.0) += xi * yj * g.prob[o]
-    for t, p in acc: flowFrom[s].add (t, p)
+    for t, p in acc: result[s].add (t, p)
+
+proc occupancy*(g: Game, sol: Solution, start: int, tol = 1e-12): seq[float] =
+  ## Expected number of times each position is visited, starting from
+  ## `start`, before the encounter ends (stop or finish).
+  let n = g.states.len
+  let eps = g.params.stopChance
+  let flowFrom = flows(g, sol)
   result = newSeq[float](n)
   var cur = newSeq[float](n)
-  cur[g.start] = 1.0
-  # Sum of the visit distribution over time (geometric series).
+  cur[start] = 1.0
   for step in 0 ..< 1_000_000:
     var nxt = newSeq[float](n)
     var mass = 0.0
@@ -60,16 +65,17 @@ proc occupancy*(g: Game, sol: Solution, tol = 1e-12): seq[float] =
     cur = nxt
     if mass < tol: break
 
-proc fightStats*(g: Game, sol: Solution): FightStats =
+proc fightStats*(g: Game, sol: Solution, start = -1): FightStats =
+  let s0 = if start < 0: int(g.start) else: start
   let eps = g.params.stopChance
-  let visits = occupancy(g, sol)
+  let visits = occupancy(g, sol, s0)
   for s in 0 ..< g.states.len:
     let nv = visits[s]
     if nv < 1e-14: continue
     let st = g.states[s]
     result.timeIn[st.pos] += nv
-    result.decision += eps * nv
-    result.decisionWinA += eps * nv * g.stopValue[s]
+    result.stopped += eps * nv
+    result.stopValue += eps * nv * g.stopValue[s]
     let play = (1.0 - eps) * nv
     result.beats += play
     let m = g.nActs(wA, s)
@@ -77,11 +83,9 @@ proc fightStats*(g: Game, sol: Solution): FightStats =
     let oa = int(g.actOff[wA][s])
     let ob = int(g.actOff[wB][s])
     for i in 0 ..< m:
-      let xi = sol.strat[wA][oa + i]
-      result.uses[wA][g.act(wA, s, i)] += play * xi
+      result.uses[wA][g.act(wA, s, i)] += play * sol.strat[wA][oa + i]
     for j in 0 ..< k:
-      let yj = sol.strat[wB][ob + j]
-      result.uses[wB][g.act(wB, s, j)] += play * yj
+      result.uses[wB][g.act(wB, s, j)] += play * sol.strat[wB][ob + j]
     for i in 0 ..< m:
       let xi = sol.strat[wA][oa + i]
       if xi <= 0.0: continue
@@ -90,24 +94,30 @@ proc fightStats*(g: Game, sol: Solution): FightStats =
         if yj <= 0.0: continue
         let w = play * xi * yj
         let acts = [wA: g.act(wA, s, i), wB: g.act(wB, s, j)]
-        for o in resolve(g.params, st, acts[wA], acts[wB], g.dims, detailed = true):
+        let c = Ctx(s: st, act: acts, d: g.dims, mode: g.mode)
+        for o in resolve(g.params, st, acts[wA], acts[wB], g.dims, g.mode, detailed = true):
           let wp = w * o.p
           if o.target < 0: result.finishes[toTerminal(o.target)] += wp
           for who in Who:
             for t in o.tags[who]:
               result.events[who][t] += wp
             if etLanded in o.tags[who]:
-              result.landed[who][acts[who]] += wp
-  result.winA = result.decisionWinA + result.finishes[tAKO] + result.finishes[tASub] +
-                0.5 * result.finishes[tDraw]
+              let a = acts[who]
+              result.landed[who][a] += wp
+              let z = if c.s.f[who.other].cond == cStunned or st.pos.isDown(who.other):
+                        tech[a].downZone else: tech[a].zone
+              result.zoneHits[who][z] += wp
+  result.valueA = result.stopValue
+  for t in Terminal: result.valueA += result.finishes[t] * terminalValue(t)
 
 proc accuracy*(st: FightStats, w: Who, a: Action): float =
   if st.uses[w][a] > 0: st.landed[w][a] / st.uses[w][a] else: 0.0
 
 proc strikeAccuracy*(st: FightStats, w: Who): (float, float, float) =
-  ## (attempted, landed, accuracy) over all strikes
+  ## (attempted, landed, accuracy) over all strikes except counters (a
+  ## counter is only thrown when there is something to counter)
   var att, lan = 0.0
-  for a in Strikes:
+  for a in Strikes - {aCounter}:
     att += st.uses[w][a]
     lan += st.landed[w][a]
   (att, lan, (if att > 0: lan / att else: 0.0))
@@ -122,8 +132,9 @@ proc positionGroups*(st: FightStats): seq[(string, float)] =
   for p in Pos: total += st.timeIn[p]
   var g = initOrderedTable[string, float]()
   for p in Pos:
-    let k = if p in StandingPositions: "standing"
+    let k = if p in StandingPositions: "standing apart"
             elif p in ClinchPositions: "clinch"
+            elif p in BehindPositions: "held from behind"
             elif p in OverPositions: "one down"
             else: "ground"
     g.mgetOrPut(k, 0.0) += st.timeIn[p] / max(total, 1e-300)
@@ -131,27 +142,54 @@ proc positionGroups*(st: FightStats): seq[(string, float)] =
 
 proc pct*(x: float): string = $int(round(100.0 * x)) & "%"
 
-proc report*(g: Game, sol: Solution, st: FightStats, who = wA): string =
+proc pct1*(x: float): string = formatFloat(100.0 * x, ffDecimal, 1) & "%"
+
+proc outcomeLine*(g: Game, st: FightStats): string =
+  case g.mode
+  of mSelfDefense:
+    &"You escape {pct1(st.finishes[tAEscape])}, incapacitate them {pct1(st.finishes[tAKO])}, " &
+    &"choke them {pct1(st.finishes[tASub])} | you are incapacitated {pct1(st.finishes[tBKO])}, " &
+    &"choked {pct1(st.finishes[tBSub])} | ends without a finish {pct1(st.stopped)}"
+  of mSport:
+    &"KO/TKO {pct1(st.finishes[tAKO] + st.finishes[tBKO])}   submission " &
+    &"{pct1(st.finishes[tASub] + st.finishes[tBSub])}   decision {pct1(st.stopped)}"
+
+proc usesLine*(st: FightStats, who: Who, limit = 14): string =
+  var used: seq[(float, Action)]
+  for a in Action:
+    if st.uses[who][a] > 1e-4: used.add (st.uses[who][a], a)
+  used.sort(proc(x, y: (float, Action)): int = cmp(y[0], x[0]))
+  var parts: seq[string]
+  for i, (u, a) in used:
+    if i >= limit: break
+    var s = &"{a.name} {u:.2f}"
+    if a in Strikes - {aCounter} and u > 0: s &= " (" & pct(st.accuracy(who, a)) & " land)"
+    parts.add s
+  parts.join(", ")
+
+proc zonesLine*(st: FightStats, who: Who): string =
+  var z: seq[(float, VulnerabilityZone)]
+  for zone in VulnerabilityZone:
+    if st.zoneHits[who][zone] > 1e-4: z.add (st.zoneHits[who][zone], zone)
+  z.sort(proc(x, y: (float, VulnerabilityZone)): int = cmp(y[0], x[0]))
+  var parts: seq[string]
+  for (h, zone) in z: parts.add &"{zone.zoneName} {h:.2f}"
+  parts.join(", ")
+
+proc report*(g: Game, sol: Solution, st: FightStats): string =
   var lines: seq[string]
-  let finishKO = st.finishes[tAKO] + st.finishes[tBKO]
-  let finishSub = st.finishes[tASub] + st.finishes[tBSub]
-  lines.add &"How fights end   KO/TKO {100*finishKO:5.1f}%   submission {100*finishSub:5.1f}%   decision {100*st.decision:5.1f}%   double KO {100*st.finishes[tDraw]:4.2f}%"
-  lines.add &"A wins           {100*st.winA:5.1f}%  (KO {100*st.finishes[tAKO]:.1f}%, sub {100*st.finishes[tASub]:.1f}%, decision {100*st.decisionWinA:.1f}%)"
-  lines.add &"Fight length     {st.beats:.1f} beats on average"
+  lines.add "Outcome          " & outcomeLine(g, st)
+  lines.add &"Length           {st.beats:.1f} beats on average"
   var where: seq[string]
   for (k, v) in positionGroups(st): where.add k & " " & pct(v)
   lines.add "Time spent       " & where.join(", ")
-  let (att, lan, acc) = strikeAccuracy(st, who)
-  let (tda, tdo, tdacc) = takedownAccuracy(st, who)
-  lines.add &"Fighter {who}: strikes {att:.1f} thrown, {lan:.1f} landed ({pct(acc)}); takedowns {tdo:.2f}/{tda:.2f} ({pct(tdacc)})"
-  var used: seq[(float, Action)]
-  for a in Action:
-    if st.uses[who][a] > 1e-6: used.add (st.uses[who][a], a)
-  used.sort(proc(x, y: (float, Action)): int = cmp(y[0], x[0]))
-  var parts: seq[string]
-  for (u, a) in used:
-    var s = &"{a.name} {u:.2f}"
-    if a in Strikes and u > 0: s &= " (" & pct(st.accuracy(who, a)) & " land)"
-    parts.add s
-  lines.add &"Fighter {who} uses per fight: " & parts.join(", ")
+  for who in Who:
+    let (att, lan, acc) = strikeAccuracy(st, who)
+    let label = if g.mode == mSelfDefense: (if who == wA: "You     " else: "Attacker") else: "Fighter " & $who
+    lines.add &"{label}: strikes {att:.2f} thrown, {lan:.2f} landed ({pct(acc)}); " &
+              &"stuns {st.events[who][etStunned]:.2f}, leg injuries {st.events[who][etLegs]:.2f}, " &
+              &"knockdowns {st.events[who][etKnockdown]:.2f}, takedowns {st.events[who][etTakedown]:.2f}"
+    lines.add "  uses per encounter: " & usesLine(st, who)
+    let zl = zonesLine(st, who)
+    if zl.len > 0: lines.add "  targets hit: " & zl
   lines.join("\n")
