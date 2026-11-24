@@ -4,15 +4,21 @@
 ## self-defense playbook (Markdown, HTML and JSON). The other commands
 ## inspect single matchups and positions.
 
-import std/[json, os, parseopt, sequtils, strformat, strutils, times]
-import solver/[core, params, rules, game, solve, analysis, studies, playbook, playbook_render]
+import std/[json, os, parseopt, sequtils, strformat, strutils, tables, times]
+import solver/[core, params, rules, game, solve, analysis, studies, playbook, playbook_render,
+              deep, deep_render]
 
 const usage = """
 fightsolve - exact equilibrium analysis of a discrete self-defense model
 
 Commands
-  playbook      Generate the static self-defense playbook (Markdown, HTML,
-                JSON) into --out (default docs/playbook).
+  deep          The full analysis with no time budget: exhaustive combination
+                search, complete tablebase, one-at-a-time and joint-perturbation
+                robustness, finer grids, technique-pair synergy. Runs on all
+                cores, caches every result, resumes after interruption.
+                Writes PLAYBOOK.md, DEEP_ANALYSIS.md, index.html, playbook.json
+                and tablebase/ into --out (default docs/playbook).
+  playbook      Quicker playbook (beam search, family-level robustness).
   solve         Solve one matchup from one situation; print the certificate,
                 how encounters end, and what each side does.
   explain       Values, optimal mixed strategies and the full payoff matrix
@@ -49,6 +55,22 @@ Options
   --targets FILE          calibration targets (default data/calibration_targets.json)
   --out PATH              output file or directory
   --quiet                 no progress output
+
+Deep analysis options (defaults in brackets)
+  --jobs N                parallel worker processes [all cores]
+  --cache DIR             result cache [.fightsolve-cache]
+  --combo-length N        longest combination searched exhaustively [6]
+  --min-executed X        every step performed at least this often [0.25]
+  --line-depth N          depth of optimal-line extraction [6]
+  --mc N                  joint-perturbation samples per attacker [300]
+  --mc-sigma X            log-normal spread of each parameter [0.25]
+  --spreads a,b,...       one-at-a-time factors [0.5,0.75,1.25,1.5]
+  --grids a,b,...         extra damage grids [6,8]
+  --no-pairs              skip technique-pair synergy
+  --attackers a,b,...     attacker types [brawler,striker,grappler]
+  --defenders a,b,...     defender types [trained,untrained]
+  --plan-only             print what would be computed and exit
+  --render-only           build the outputs from the cache without computing
 """
 
 type Opts = object
@@ -70,14 +92,18 @@ type Opts = object
   outFile: string
   quiet: bool
   fA, fB: Fighter
+  deep: DeepConfig
+  planOnly, renderOnly: bool
+  spec, resultFile: string
 
 proc parseOpts(): Opts =
-  result = Opts(a: "trained", b: "brawler", pos: "Long", mode: mSelfDefense,
+  result = Opts(deep: defaultDeepConfig(), a: "trained", b: "brawler", pos: "Long", mode: mSelfDefense,
                 dims: defaultDims, tol: 1e-9, by: "zone", query: "value",
                 spread: 0.25, robustness: true, top: 15,
                 targets: "data/calibration_targets.json")
   var p = initOptParser(commandLineParams(), shortNoVal = {'h'},
                         longNoVal = @["fine", "quiet", "sport", "no-robustness", "help",
+                                      "no-pairs", "plan-only", "render-only",
                                       "a-off", "a-stun", "a-lead", "a-legs",
                                       "b-off", "b-stun", "b-lead", "b-legs"])
   for kind, key, val in p.getopt():
@@ -103,6 +129,22 @@ proc parseOpts(): Opts =
       of "targets": result.targets = val
       of "out": result.outFile = val
       of "quiet": result.quiet = true
+      of "jobs": result.deep.jobs = parseInt(val)
+      of "cache": result.deep.cacheDir = val
+      of "combo-length": result.deep.comboLength = parseInt(val)
+      of "min-executed": result.deep.minExecuted = parseFloat(val)
+      of "line-depth": result.deep.lineDepth = parseInt(val)
+      of "mc": result.deep.mcSamples = parseInt(val)
+      of "mc-sigma": result.deep.mcSigma = parseFloat(val)
+      of "spreads": result.deep.spreads = val.split(",").filterIt(it.strip.len > 0).mapIt(parseFloat(it.strip))
+      of "grids": result.deep.grids = val.split(',').filterIt(it.len > 0).mapIt(parseInt(it.strip))
+      of "no-pairs": result.deep.pairs = false
+      of "attackers": result.deep.attackers = val.split(',')
+      of "defenders": result.deep.defenders = val.split(',')
+      of "plan-only": result.planOnly = true
+      of "render-only": result.renderOnly = true
+      of "spec": result.spec = val
+      of "result": result.resultFile = val
       of "a-dmg": result.fA.dmg = parseInt(val)
       of "b-dmg": result.fB.dmg = parseInt(val)
       of "a-off": result.fA.cond = cOff
@@ -293,6 +335,31 @@ proc cmdExport(o: Opts) =
   writeFile(o.outFile, $doc)
   echo &"Wrote {g.states.len} positions to {o.outFile}"
 
+proc cmdDeep(o: Opts) =
+  var cfg = o.deep
+  if o.outFile.len > 0: cfg.outDir = o.outFile
+  for n in cfg.attackers & cfg.defenders: discard findStyle(n)   # validate names
+  let units = planUnits(cfg)
+  var groups = initCountTable[string]()
+  for u in units: groups.inc u.group
+  var cached = 0
+  for u in units:
+    if not loadResult(cfg, u).isNil: inc cached
+  echo &"Deep analysis: {units.len} units ({cached} already cached)"
+  for g, n in groups: echo &"  {g:<10} {n}"
+  if o.planOnly: return
+  let t0 = epochTime()
+  if not o.renderOnly:
+    runAll(cfg, units)
+  buildDeepOutputs(cfg, units)
+  echo &"Wrote {cfg.outDir}/PLAYBOOK.md, DEEP_ANALYSIS.md, index.html, playbook.json and tablebase/ " &
+       &"({(epochTime() - t0) / 60:.1f} min)"
+
+proc cmdUnit(o: Opts) =
+  if o.spec.len == 0 or o.resultFile.len == 0:
+    raise newException(ValueError, "unit needs --spec FILE --result FILE")
+  runUnitFile(o.spec, o.resultFile)
+
 proc cmdPlaybook(o: Opts) =
   let dir = if o.outFile.len > 0: o.outFile else: "docs/playbook"
   createDir(dir)
@@ -344,6 +411,8 @@ when isMainModule:
     let o = parseOpts()
     case o.cmd
     of "playbook": cmdPlaybook(o)
+    of "deep": cmdDeep(o)
+    of "unit": cmdUnit(o)
     of "solve": cmdSolve(o)
     of "explain": cmdExplain(o)
     of "ablate": cmdAblate(o)

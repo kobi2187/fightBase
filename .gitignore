@@ -3,3 +3,4 @@ nimcache/
 /fight_tree_test.db
 /fight_states.db
 /fight_states.txt
+/.fightsolve-cache/

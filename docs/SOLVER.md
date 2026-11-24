@@ -167,7 +167,8 @@ these equilibria exact to numerical precision, not approximations.
 
 | Command | Answers |
 |---|---|
-| `fightsolve playbook` | the static playbook: Markdown, HTML and JSON in `docs/playbook/` |
+| `fightsolve deep` | the full analysis with no time budget (see below); the static outputs in `docs/playbook/` |
+| `fightsolve playbook` | a quicker playbook (beam search, family-level robustness) |
 | `fightsolve solve --pos Mid --a trained --b brawler` | value, certificate, how encounters end, technique use and accuracy, targets hit |
 | `fightsolve explain --pos ClinchB --b-stun` | mixed strategies and the full payoff matrix at one position |
 | `fightsolve ablate --by zone` | what each target zone (or technique, or mechanism) is worth |
@@ -189,6 +190,50 @@ The playbook scores responses and combinations several ways:
   an option can never help, and the tests check that.
 - **Robustness:** each top response is re-derived with every family of
   assumptions (`paramFamilies` in `params.nim`) scaled by ±25%.
+
+## Deep analysis (no time budget)
+
+`fightsolve deep` (or `nimble deep`) runs the analysis without shortcuts. It
+is built to run for hours or days:
+
+- Every computation is a **unit** with a complete JSON specification. Its
+  result is cached under `.fightsolve-cache/` by a hash of that
+  specification, so an interrupted run resumes where it stopped, and a
+  changed setting only recomputes what it affects.
+- Units run as parallel worker processes (`fightsolve unit`) on every core
+  (`--jobs`).
+- `--render-only` rebuilds the outputs from whatever is cached, so partial
+  results can be published while the rest runs.
+
+What it computes, with the defaults:
+
+| Units | What |
+|---|---|
+| full (6) | each defender profile × each attacker type: every situation's responses, answers to attacks, optimal lines to depth 6, and the **complete tablebase** (P(safe) and the three best responses at every reachable position) |
+| combos (60) | **exhaustive** search over every plan of 2–6 actions in every situation. No beam; the only cut is "every step performed at least 25% of the time", which is exact because a longer plan is never performed in full more often than its prefix |
+| oat (2,472) | every self-defense parameter scaled by ×0.5, ×0.75, ×1.25 and ×1.5, one at a time, for each attacker type |
+| mc (900) | 300 samples per attacker type with **every** parameter multiplied at once by an independent log-normal factor (σ = 0.25): the share of samples in which a recommendation survives, and the 5–95% range of P(safe) |
+| grid (6) | the same game on 6 and 8 damage levels: do the recommendations depend on the discretisation? |
+| ablate, zone, mechanics, hip (135) | each technique, target zone and force mechanism removed, and hip loading switched off, against every attacker type |
+| pair (1,218) | every pair of techniques removed together: synergy (losing both costs more than the sum) versus substitution |
+
+Outputs, in `docs/playbook/`:
+- `PLAYBOOK.md`: the playbook, with joint-perturbation robustness and the
+  exhaustive combinations.
+- `DEEP_ANALYSIS.md`: which assumptions drive which recommendations,
+  robustness per situation, the best response against an attacker of
+  unknown type, what training buys, weapons against every attacker type,
+  and synergy.
+- `index.html`: everything above, plus a **tablebase explorer**: pick any
+  position and both fighters' condition, and see the best responses.
+- `tablebase/*.json`: the complete tablebases.
+- `playbook.json`: the data.
+
+Every limit is a flag: `--combo-length`, `--min-executed`, `--line-depth`,
+`--mc`, `--mc-sigma`, `--spreads`, `--grids`, `--no-pairs`, `--attackers`,
+`--defenders`. With the defaults the run is about 4,800 solves, roughly 26
+core-hours. Plan length is the expensive knob: each extra action multiplies
+the search by about 8.
 
 ## Profiles
 
@@ -239,8 +284,11 @@ Attackers:
 | `src/solver/studies.nim` | ablation, matchups, sensitivity, calibration |
 | `src/solver/playbook.nim` | scenarios, response scoring, lines, combination search, robustness |
 | `src/solver/playbook_render.nim` | Markdown / HTML / JSON output |
+| `src/solver/deep.nim` | deep analysis: unit specs, cache, parallel workers, aggregation |
+| `src/solver/deep_render.nim` | deep outputs: DEEP_ANALYSIS.md, tablebase files, explorer data |
 | `src/fightsolve.nim` | command-line interface |
-| `tests/` | 35 tests: matrix games, model invariants, symmetry, solver, playbook identities |
+| `tests/` | 39 tests: matrix games, model invariants, symmetry, solver, playbook identities, deep analysis |
 
-Run the tests with `nimble test`, and regenerate the playbook with
-`nimble playbook` (about 40 minutes with robustness checks).
+Run the tests with `nimble test`. Regenerate the quick playbook with
+`nimble playbook` (about 30 minutes), or the full deep analysis with
+`nimble deep` (hours; resumable).

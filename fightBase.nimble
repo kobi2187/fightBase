@@ -30,3 +30,7 @@ task checkall, "Type-check every module and example":
 task playbook, "Regenerate the static self-defense playbook in docs/playbook":
   exec "nim c -d:release --hints:off -o:bin/fightsolve src/fightsolve.nim"
   exec "bin/fightsolve playbook"
+
+task deep, "Run the full deep analysis (hours; all cores; resumable) into docs/playbook":
+  exec "nim c -d:release --hints:off -o:bin/fightsolve src/fightsolve.nim"
+  exec "bin/fightsolve deep"

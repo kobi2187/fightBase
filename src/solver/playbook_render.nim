@@ -15,10 +15,34 @@ proc delta(x: float): string =
 
 proc plan(c: seq[Action]): string = c.mapIt(it.name).join(" → ")
 
-proc robustLabel(r: Robustness): string =
+proc robustLabel*(r: Robustness): string =
+  if r.mcChecks > 0:
+    return "holds " & $int(round(100.0 * r.mcHolds.float / r.mcChecks.float)) & "%"
   if r.checks == 0: return "not checked"
   if r.sameTop == r.checks: return &"robust ({r.checks}/{r.checks})"
   &"holds in {r.sameTop}/{r.checks}"
+
+proc robustParagraph*(r: Robustness): string =
+  if r.mcChecks == 0:
+    return &"Robustness of the top response: {robustLabel(r)}" &
+      (if r.displacedBy.len > 0:
+         ". Changes under: " & r.displacedBy.mapIt(&"{it[0]} → {it[1]}").join("; ")
+       else: "") & &". P(safe) across those perturbations: {pts(r.valueLow)} to {pts(r.valueHigh)}."
+  let mcPct = 100.0 * r.mcHolds.float / r.mcChecks.float
+  result = &"Robustness of the top response: with every assumption perturbed at once, it stays " &
+           &"the best (or within half a point of it) in {mcPct:.0f}% of {r.mcChecks} samples"
+  var others: seq[string]
+  for (t, n) in r.mcTops:
+    others.add &"{t} {n}"
+  if others.len > 1: result &= " (best response per sample: " & others.join(", ") & ")"
+  result &= &". One parameter at a time: holds in {r.oatHolds}/{r.oatChecks} changes"
+  if r.displacedBy.len > 0:
+    let shown = r.displacedBy[0 ..< min(6, r.displacedBy.len)]
+    result &= "; flips under " & shown.mapIt(&"{it[0]} → {it[1]}").join("; ") &
+              (if r.displacedBy.len > 6: &" and {r.displacedBy.len - 6} more" else: "")
+  result &= &". P(safe) under joint perturbation: {pts(r.valueLow)} to {pts(r.valueHigh)} (5th to 95th percentile)."
+  if r.grid.len > 0:
+    result &= " Finer damage grids: " & r.grid.mapIt(&"{it[0]} levels → {it[1]} ({pts(it[2])})").join(", ") & "."
 
 proc describeAction*(a: Action): string =
   case a
@@ -73,7 +97,7 @@ proc markdown*(matches: seq[MatchReport], worths: seq[WorthTable],
   template add(s: string) = o.add s
   add "# Self-defense playbook"
   add ""
-  add &"*Generated {generated} by `fightsolve playbook` from the model in `src/solver/`. " &
+  add &"*Generated {generated} by `fightsolve` from the model in `src/solver/`. " &
       "Every number below is an output of that model under its stated assumptions, " &
       "not a measurement. Read the [model description](../SOLVER.md) before relying on any of it.*"
   add ""
@@ -90,10 +114,18 @@ proc markdown*(matches: seq[MatchReport], worths: seq[WorthTable],
   add "- **Combinations** are plans you commit to. *Expected* is against his optimal play; " &
       "*if he reads it* is against an attacker who knows the whole plan. *Dealt*, *stuns* and " &
       "*taken* are expected damage levels and stuns during the combination; *executed* is how " &
-      "often every step was possible in the position it reached."
-  add "- **Robustness**: the top response was re-derived with every family of assumptions " &
-      "scaled by ±25% (24 re-solves per attacker). *robust* means it stayed the best, or within " &
-      "half a point of the best, every time; *not checked* means the build skipped this step."
+      "often every step was actually performed (each step must be possible in the position the " &
+      "previous one led to)."
+  if matches.len > 0 and matches[0].scenarios.len > 0 and matches[0].scenarios[0].robustness.mcChecks > 0:
+    add "- **Robustness**: every top response was re-derived hundreds of times with all " &
+        "assumptions perturbed at once (each parameter scaled by an independent random factor " &
+        "around 1), and again with each parameter changed on its own. *holds N%* is the share of " &
+        "joint perturbations in which it stayed the best response or within half a point of it. " &
+        "Details in [DEEP_ANALYSIS.md](DEEP_ANALYSIS.md)."
+  else:
+    add "- **Robustness**: the top response was re-derived with every family of assumptions " &
+        "scaled by ±25% (24 re-solves per attacker). *robust* means it stayed the best, or within " &
+        "half a point of the best, every time; *not checked* means the build skipped this step."
   add ""
 
   # ---- summary table
@@ -104,8 +136,10 @@ proc markdown*(matches: seq[MatchReport], worths: seq[WorthTable],
   for m in matches:
     head &= &" vs {m.attacker} |"
     sep &= "---|"
-  head &= &" untrained vs {baseline.attacker} |"
-  sep &= "---|"
+  let hasBaseline = baseline.scenarios.len > 0
+  if hasBaseline:
+    head &= &" untrained vs {baseline.attacker} |"
+    sep &= "---|"
   add head
   add sep
   for k, sc in scenarios:
@@ -113,7 +147,7 @@ proc markdown*(matches: seq[MatchReport], worths: seq[WorthTable],
     for m in matches:
       let r = m.scenarios[k]
       row &= &" **{r.responses[0].action.name}** · P(safe) {pts(r.value)} · {robustLabel(r.robustness)} |"
-    row &= &" {pts(baseline.scenarios[k].value)} |"
+    if hasBaseline: row &= &" {pts(baseline.scenarios[k].value)} |"
     add row
   add ""
   add "Technique names are explained in the [glossary](#glossary)."
@@ -135,10 +169,7 @@ proc markdown*(matches: seq[MatchReport], worths: seq[WorthTable],
           &"you are incapacitated {pts(oc.finishes[tBKO])}, choked {pts(oc.finishes[tBSub])}; " &
           &"no finish {pts(oc.stopped)} (about {int(round(oc.beats))} beats)."
       add ""
-      add &"Robustness of the top response: {robustLabel(r.robustness)}" &
-          (if r.robustness.displacedBy.len > 0:
-             ". Changes under: " & r.robustness.displacedBy.mapIt(&"{it[0]} → {it[1]}").join("; ")
-           else: "") & &". P(safe) across those perturbations: {pts(r.robustness.valueLow)} to {pts(r.robustness.valueHigh)}."
+      add robustParagraph(r.robustness)
       add ""
       let full = mi == 0
       add "| Response | Expected | If he picks the best reply | Optimal play uses it |"
@@ -203,20 +234,21 @@ proc markdown*(matches: seq[MatchReport], worths: seq[WorthTable],
     add ""
 
   # ---- training
-  add &"## What training buys (untrained vs {baseline.attacker})"
-  add ""
-  add "| Situation | Untrained P(safe) | Best untrained response | Trained P(safe) |"
-  add "|---|---|---|---|"
-  let trainedSame = block:
-    var t = -1
-    for i, m in matches:
-      if m.attacker == baseline.attacker: t = i
-    t
-  for k, sc in scenarios:
-    let u = baseline.scenarios[k]
-    let tr = if trainedSame >= 0: pts(matches[trainedSame].scenarios[k].value) else: "-"
-    add &"| {sc.title} | {pts(u.value)} | {u.responses[0].action.name} | {tr} |"
-  add ""
+  if hasBaseline:
+    add &"## What training buys (untrained vs {baseline.attacker})"
+    add ""
+    add "| Situation | Untrained P(safe) | Best untrained response | Trained P(safe) |"
+    add "|---|---|---|---|"
+    let trainedSame = block:
+      var t = -1
+      for i, m in matches:
+        if m.attacker == baseline.attacker: t = i
+      t
+    for k, sc in scenarios:
+      let u = baseline.scenarios[k]
+      let tr = if trainedSame >= 0: pts(matches[trainedSame].scenarios[k].value) else: "-"
+      add &"| {sc.title} | {pts(u.value)} | {u.responses[0].action.name} | {tr} |"
+    add ""
 
   # ---- glossary
   add "## Glossary"
@@ -231,7 +263,7 @@ proc markdown*(matches: seq[MatchReport], worths: seq[WorthTable],
   add ""
   add "## Certificate"
   add ""
-  for m in matches & baseline:
+  for m in (if hasBaseline: matches & baseline else: matches):
     add &"- {m.defender} vs {m.attacker}: {m.states} positions, {m.pairs} action pairs, " &
         &"{m.outcomes} explicit outcomes; largest gap between the guaranteed floor and " &
         &"ceiling over all positions {m.exploitability:.1e} (0 = exact equilibrium)."

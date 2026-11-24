@@ -15,7 +15,7 @@
 ## - whether the top recommendation survives perturbing every family of
 ##   assumptions
 
-import std/[algorithm, json, sequtils, sets, strformat, strutils, tables, times]
+import std/[algorithm, json, math, sequtils, sets, strformat, strutils, tables, times]
 import core, params, rules, game, solve, analysis, studies
 
 type
@@ -42,7 +42,7 @@ type
     expected*: float     ## vs the attacker's optimal play
     guaranteed*: float   ## vs an attacker who knows the plan
     finishedSafe*: float ## P(you are safe before the plan is over)
-    executed*: float     ## P(every step of the plan could be carried out)
+    executed*: float     ## P(every step of the plan was actually performed)
     dealt*: float        ## expected damage levels dealt during the plan
     stuns*: float        ## expected stuns inflicted during the plan
     taken*: float        ## expected damage levels taken during the plan
@@ -58,6 +58,11 @@ type
     sameTop*: int
     displacedBy*: seq[(string, string)]  ## (perturbation, new top response)
     valueLow*, valueHigh*: float
+    # deep analysis (zero when not run)
+    oatChecks*, oatHolds*: int           ## one parameter at a time
+    mcChecks*, mcHolds*: int             ## all parameters jointly perturbed
+    mcTops*: seq[(string, int)]          ## top responses seen under joint perturbation
+    grid*: seq[(int, string, float)]     ## damage levels, top response, P(safe)
 
   ScenarioReport* = object
     scenario*: Scenario
@@ -247,13 +252,16 @@ proc planExpected*(g: Game, sol: Solution, s0: int, plan: seq[Action],
   let eps = g.params.stopChance
   let dl = g.dims.damageLevels
   var dist = {s0: 1.0}.toTable
+  var performed = 0.0
   for k, a in plan:
     var nd = initTable[int, float]()
+    performed = 0.0
     for s, m in dist:
       let i = g.actIndex(wA, s, a)
       if i < 0:
         result.expected += m * sol.value[s]
         continue
+      performed += m
       result.expected += m * eps * g.stopValue[s]
       let mm = m * (1.0 - eps)
       let cur = g.states[s]
@@ -283,8 +291,7 @@ proc planExpected*(g: Game, sol: Solution, s0: int, plan: seq[Action],
     dist = nd
   for s, m in dist:
     result.expected += m * sol.value[s]
-    result.executed += m
-  result.executed += result.finishedSafe
+  result.executed = performed
 
 proc planGuaranteed*(g: Game, sol: Solution, s0: int, plan: seq[Action],
                      attackerFirst = -1): float =
@@ -416,6 +423,167 @@ const namedCombos* = [
 # Whole report
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Exhaustive combination search
+# ---------------------------------------------------------------------------
+
+type
+  PlanNode = object
+    plan: seq[Action]
+    dist: seq[(int, float)]   ## positions where the plan continues, with mass
+    value, finished, dealt, stuns, taken: float
+    performed: float          ## P(the last step was actually performed)
+
+  ExhaustiveCombos* = object
+    best*: seq[ComboScore]      ## by value vs an optimal attacker
+    striking*: seq[ComboScore]  ## same, every step a strike or push
+    decisive*: seq[ComboScore]  ## by P(safe finish during the plan)
+    evaluated*: int             ## plans scored
+    maxLen*: int
+    minExecuted*: float
+
+proc stepPlan(g: Game, sol: Solution, node: PlanNode, a: Action,
+              attackerFirst: int): PlanNode =
+  ## Extend a plan by one step, carrying its distribution forward exactly
+  ## (same accounting as `planExpected`).
+  let eps = g.params.stopChance
+  let dl = g.dims.damageLevels
+  result = PlanNode(plan: node.plan & a, value: node.value, finished: node.finished,
+                    dealt: node.dealt, stuns: node.stuns, taken: node.taken)
+  var nd = initTable[int, float]()
+  let first = node.plan.len == 0
+  for (s, m) in node.dist:
+    let i = g.actIndex(wA, s, a)
+    if i < 0:
+      result.value += m * sol.value[s]          # plan broken: optimal play from here
+      continue
+    result.performed += m
+    result.value += m * eps * g.stopValue[s]
+    let mm = m * (1.0 - eps)
+    let cur = g.states[s]
+    let ob = int(g.actOff[wB][s])
+    let fixed = if first and attackerFirst >= 0: g.actIndex(wB, s, Action(attackerFirst)) else: -1
+    for j in 0 ..< g.nActs(wB, s):
+      let yj = if fixed >= 0: (if j == fixed: 1.0 else: 0.0) else: sol.strat[wB][ob + j]
+      if yj <= 0.0: continue
+      let pair = g.pairIndex(s, i, j)
+      for o in g.outOff[pair] ..< g.outOff[pair + 1]:
+        let w = mm * yj * g.prob[o]
+        let t = g.target[o]
+        if t < 0:
+          let term = toTerminal(t)
+          result.value += w * terminalValue(term)
+          if winner(term) == ord(wA): result.finished += w
+          if term in {tAKO, tDraw}: result.dealt += w * float(dl - cur.f[wB].dmg)
+          if term in {tBKO, tDraw}: result.taken += w * float(dl - cur.f[wA].dmg)
+        else:
+          let ns = g.states[t]
+          result.dealt += w * float(ns.f[wB].dmg - cur.f[wB].dmg)
+          result.taken += w * float(ns.f[wA].dmg - cur.f[wA].dmg)
+          if ns.f[wB].cond == cStunned: result.stuns += w
+          nd.mgetOrPut(int(t), 0.0) += w
+  for t, m in nd: result.dist.add (t, m)
+
+proc score(g: Game, sol: Solution, n: PlanNode, attackerFirst: int): ComboScore =
+  result = ComboScore(plan: n.plan, expected: n.value, finishedSafe: n.finished,
+                      dealt: n.dealt, stuns: n.stuns, taken: n.taken, executed: n.performed,
+                      vsAttack: (if attackerFirst >= 0: Action(attackerFirst).name else: ""))
+  for (s, m) in n.dist:
+    result.expected += m * sol.value[s]
+
+proc planKey(p: seq[Action]): string = p.mapIt(it.name).join(">")
+
+proc byValue(x, y: ComboScore): int =
+  if abs(x.expected - y.expected) >= 1e-9: return cmp(y.expected, x.expected)
+  if abs(x.finishedSafe - y.finishedSafe) >= 1e-9: return cmp(y.finishedSafe, x.finishedSafe)
+  if abs(x.executed - y.executed) >= 1e-9: return cmp(y.executed, x.executed)
+  if x.plan.len != y.plan.len: return cmp(x.plan.len, y.plan.len)
+  cmp(planKey(x.plan), planKey(y.plan))
+
+proc byDecisive(x, y: ComboScore): int =
+  if abs(x.finishedSafe - y.finishedSafe) >= 1e-9: return cmp(y.finishedSafe, x.finishedSafe)
+  byValue(x, y)
+
+proc offer(list: var seq[ComboScore], c: ComboScore, top: int,
+           cmpf: proc(x, y: ComboScore): int) =
+  if list.len >= top and cmpf(c, list[^1]) >= 0: return
+  var i = list.len
+  list.add c
+  while i > 0 and cmpf(list[i], list[i - 1]) < 0:
+    swap(list[i], list[i - 1])
+    dec i
+  if list.len > top: list.setLen(top)
+
+proc exhaustiveCombos*(g: Game, sol: Solution, s0: int, maxLen = 5, minExecuted = 0.25,
+                       top = 10, attackerFirst = -1): ExhaustiveCombos =
+  ## Score every plan of 2..maxLen defender actions from `s0` against the
+  ## attacker's optimal play. No beam: the only cut is the execution
+  ## threshold (every step actually performed at least `minExecuted` of the
+  ## time), which is exact because a longer plan is never performed in full
+  ## more often than its prefix. The finalists are also scored against an
+  ## attacker who reads the plan.
+  result.maxLen = maxLen
+  result.minExecuted = minExecuted
+  let allowedStrike = Strikes + {aPush}
+  var stack = @[PlanNode(dist: @[(s0, 1.0)], performed: 1.0)]
+  while stack.len > 0:
+    let node = stack.pop()
+    var cands: set[Action]
+    for (s, m) in node.dist:
+      if m <= 1e-12: continue
+      for i in 0 ..< g.nActs(wA, s): cands.incl g.act(wA, s, i)
+    for a in cands:
+      let child = stepPlan(g, sol, node, a, attackerFirst)
+      let sc = score(g, sol, child, attackerFirst)
+      if sc.executed < minExecuted: continue
+      inc result.evaluated
+      if child.plan.len >= 2:
+        var c = sc
+        c.source = "exhaustive search"
+        offer(result.best, c, top, byValue)
+        offer(result.decisive, c, top, byDecisive)
+        var striking = true
+        for x in child.plan:
+          if x notin allowedStrike: striking = false
+        if striking:
+          c.source = "exhaustive search (strikes)"
+          offer(result.striking, c, top, byValue)
+      if child.plan.len < maxLen: stack.add child
+  for lst in [addr result.best, addr result.striking, addr result.decisive]:
+    for c in lst[].mitems:
+      c.guaranteed = planGuaranteed(g, sol, s0, c.plan, attackerFirst)
+
+# ---------------------------------------------------------------------------
+# The full tablebase: every reachable position
+# ---------------------------------------------------------------------------
+
+proc tablebase*(g: Game, sol: Solution, top = 3): JsonNode =
+  ## Compact rows for every reachable position:
+  ## [pos, dmgA, condA, loadA, legsA, dmgB, condB, loadB, legsB, value,
+  ##  best action, its score, second, score, third, score]
+  ## Actions and positions are indices into the "actions"/"positions" lists.
+  var rows = newJArray()
+  for s in 0 ..< g.states.len:
+    let st = g.states[s]
+    var row = newJArray()
+    row.add %ord(st.pos)
+    for w in Who:
+      row.add %st.f[w].dmg
+      row.add %ord(st.f[w].cond)
+      row.add %ord(st.f[w].coil)
+      row.add %(if st.f[w].legs: 1 else: 0)
+    row.add %(round(sol.value[s] * 1e4) / 1e4)
+    let r = responses(g, sol, s)
+    for k in 0 ..< min(top, r.len):
+      row.add %ord(r[k].action)
+      row.add %(round(r[k].expected * 1e4) / 1e4)
+    rows.add row
+  var acts = newJArray()
+  for a in Action: acts.add %a.name
+  var poss = newJArray()
+  for p in Pos: poss.add %p.name
+  %*{"actions": acts, "positions": poss, "rows": rows}
+
 proc topResponse*(g: Game, sol: Solution, s: int): (Action, float) =
   let r = responses(g, sol, s)
   (r[0].action, r[0].expected)
@@ -517,6 +685,19 @@ proc worth*(base: Setup, defender, attacker: string, groups: seq[(string, set[Ac
 
 proc `%`*(a: Action): JsonNode = %a.name
 
+proc comboJson*(c: ComboScore): JsonNode =
+  %*{"plan": c.plan, "source": c.source, "vsAttack": c.vsAttack,
+     "expected": c.expected, "guaranteed": c.guaranteed,
+     "finishedSafe": c.finishedSafe, "executed": c.executed,
+     "dealt": c.dealt, "stuns": c.stuns, "taken": c.taken}
+
+proc parseCombo*(c: JsonNode): ComboScore =
+  ComboScore(plan: c["plan"].mapIt(parseAction(it.getStr)),
+    source: c["source"].getStr, vsAttack: c["vsAttack"].getStr, expected: c["expected"].getFloat,
+    guaranteed: c["guaranteed"].getFloat, finishedSafe: c["finishedSafe"].getFloat,
+    executed: c["executed"].getFloat, dealt: c["dealt"].getFloat, stuns: c["stuns"].getFloat,
+    taken: c["taken"].getFloat)
+
 proc toJson*(r: ScenarioReport): JsonNode =
   var resp = newJArray()
   for x in r.responses:
@@ -531,13 +712,13 @@ proc toJson*(r: ScenarioReport): JsonNode =
   for l in r.lines:
     lines.add %*{"actions": l.actions, "prob": l.prob, "value": l.value, "finishedSafe": l.finishedSafe}
   var combos = newJArray()
-  for c in r.combos:
-    combos.add %*{"plan": c.plan, "source": c.source, "vsAttack": c.vsAttack,
-                  "expected": c.expected, "guaranteed": c.guaranteed,
-                  "finishedSafe": c.finishedSafe, "executed": c.executed,
-                  "dealt": c.dealt, "stuns": c.stuns, "taken": c.taken}
+  for c in r.combos: combos.add comboJson(c)
   var disp = newJArray()
   for (lbl, top) in r.robustness.displacedBy: disp.add %*{"perturbation": lbl, "newTop": top}
+  var mcTops = newJArray()
+  for (t, n) in r.robustness.mcTops: mcTops.add %*[t, n]
+  var grid = newJArray()
+  for (d, t, v) in r.robustness.grid: grid.add %*[d, t, v]
   let o = r.outcome
   result = %*{
     "id": r.scenario.id, "title": r.scenario.title, "situation": r.scenario.situation,
@@ -549,7 +730,10 @@ proc toJson*(r: ScenarioReport): JsonNode =
     "responses": resp, "answers": ans, "lines": lines, "combos": combos,
     "robustness": {"checks": r.robustness.checks, "sameTop": r.robustness.sameTop,
                    "displacedBy": disp, "valueLow": r.robustness.valueLow,
-                   "valueHigh": r.robustness.valueHigh}}
+                   "valueHigh": r.robustness.valueHigh,
+                   "oatChecks": r.robustness.oatChecks, "oatHolds": r.robustness.oatHolds,
+                   "mcChecks": r.robustness.mcChecks, "mcHolds": r.robustness.mcHolds,
+                   "mcTops": mcTops, "grid": grid}}
 
 proc toJson*(m: MatchReport): JsonNode =
   var sc = newJArray()
@@ -568,3 +752,53 @@ proc toJson*(w: WorthTable): JsonNode =
               "baseline": w.baseline, "rows": rows}
   if w.hipOn.len > 0:
     result["hipLoading"] = %*{"on": w.hipOn, "off": w.hipOff}
+
+# ---------------------------------------------------------------------------
+# Reading reports back (the deep analysis caches them as JSON)
+# ---------------------------------------------------------------------------
+
+proc parseScenarioReport*(j: JsonNode): ScenarioReport =
+  let id = j["id"].getStr
+  for sc in scenarios:
+    if sc.id == id: result.scenario = sc
+  result.value = j["safe"].getFloat
+  let o = j["outcome"]
+  result.outcome.finishes[tAEscape] = o["escape"].getFloat
+  result.outcome.finishes[tAKO] = o["incapacitate"].getFloat
+  result.outcome.finishes[tASub] = o["choke"].getFloat
+  result.outcome.finishes[tBKO] = o["incapacitated"].getFloat
+  result.outcome.finishes[tBSub] = o["choked"].getFloat
+  result.outcome.finishes[tDraw] = o["doubleKO"].getFloat
+  result.outcome.stopped = o["noFinish"].getFloat
+  result.outcome.beats = o["beats"].getFloat
+  for r in j["responses"]:
+    result.responses.add ResponseScore(action: parseAction(r["action"].getStr),
+      expected: r["expected"].getFloat, guaranteed: r["guaranteed"].getFloat, mix: r["mix"].getFloat)
+  for a in j["answers"]:
+    var ans = AttackAnswer(attack: parseAction(a["attack"].getStr),
+                           attackerMix: a["attackerMix"].getFloat,
+                           worst: (parseAction(a["worst"]["action"].getStr), a["worst"]["value"].getFloat))
+    for b in a["best"]: ans.answers.add (parseAction(b["action"].getStr), b["value"].getFloat)
+    result.answers.add ans
+  for l in j["lines"]:
+    result.lines.add Line(actions: l["actions"].mapIt(parseAction(it.getStr)), prob: l["prob"].getFloat,
+                          value: l["value"].getFloat, finishedSafe: l["finishedSafe"].getFloat)
+  for c in j["combos"]: result.combos.add parseCombo(c)
+  let rb = j["robustness"]
+  result.robustness = Robustness(checks: rb["checks"].getInt, sameTop: rb["sameTop"].getInt,
+    valueLow: rb["valueLow"].getFloat, valueHigh: rb["valueHigh"].getFloat,
+    oatChecks: rb{"oatChecks"}.getInt(0), oatHolds: rb{"oatHolds"}.getInt(0),
+    mcChecks: rb{"mcChecks"}.getInt(0), mcHolds: rb{"mcHolds"}.getInt(0))
+  for d in rb["displacedBy"]:
+    result.robustness.displacedBy.add (d["perturbation"].getStr, d["newTop"].getStr)
+  if rb.hasKey("mcTops"):
+    for t in rb["mcTops"]: result.robustness.mcTops.add (t[0].getStr, t[1].getInt)
+  if rb.hasKey("grid"):
+    for t in rb["grid"]: result.robustness.grid.add (t[0].getInt, t[1].getStr, t[2].getFloat)
+
+proc parseMatchReport*(j: JsonNode): MatchReport =
+  result = MatchReport(defender: j["defender"].getStr, attacker: j["attacker"].getStr,
+                       states: j["positions"].getInt, pairs: j["actionPairs"].getInt,
+                       outcomes: j["outcomes"].getInt, exploitability: j["exploitability"].getFloat,
+                       seconds: j["seconds"].getFloat)
+  for sc in j["scenarios"]: result.scenarios.add parseScenarioReport(sc)
