@@ -2,7 +2,7 @@
 ## Deterministic, compact text representation of any fight state
 
 import fight_types
-import std/[options, strutils, strformat]
+import std/[options, strutils, strformat, unicode]
 
 ## Fatigue and damage are runtime overlays, not part of a position (see
 ## OVERLAY_ARCHITECTURE.md), so the functions below take the two fighters'
@@ -290,45 +290,42 @@ proc fromFMN*(fmn: string): FightRecord =
 ## Visual Board Representation (like ASCII chess boards)
 ## ============================================================================
 
+proc boxed(content: string): string =
+  ## One line of the ASCII board: the content padded to the box's inner
+  ## width, counting characters (the arrows are multi-byte), not bytes.
+  const inner = 59
+  let pad = max(0, inner - content.runeLen)
+  "║" & content & " ".repeat(pad) & "║\n"
+
 proc toVisualBoard*(state: FightState, currentTurn: FighterID = FighterA,
                     overlayA = createFreshOverlay(), overlayB = createFreshOverlay()): string =
   ## Create ASCII visualization of fight state
+  proc fighterLines(name: string, f: Fighter, o: RuntimeOverlay): string =
+    result.add boxed(fmt" Fighter {name} ({stanceToChar(f.pos.stance)})")
+    result.add boxed(fmt"   Balance: {int(f.pos.balance*100):3}%  Fatigue: {int(o.fatigue*100):3}%  Damage: {int(o.damage*100):3}%")
+    result.add boxed(fmt"   Limbs: {limbsToFPN(f, o)}  Momentum: {int(f.momentum.linear*10):+4} lin, {int(f.momentum.rotational):+4} rot")
+
   result = ""
-  result.add("╔═══════════════════════════════════════════════════════════╗\n")
-  result.add("║                    FIGHT STATE                            ║\n")
-  result.add("╠═══════════════════════════════════════════════════════════╣\n")
+  result.add("╔" & "═".repeat(59) & "╗\n")
+  result.add boxed("                    FIGHT STATE")
+  result.add("╠" & "═".repeat(59) & "╣\n")
+  result.add fighterLines("A", state.a, overlayA)
 
-  # Fighter A
-  result.add(fmt"║ Fighter A ({stanceToChar(state.a.pos.stance)})                                               ║" & "\n")
-  result.add(fmt"║   Balance: {int(state.a.pos.balance*100):3}%  Fatigue: {int(overlayA.fatigue*100):3}%  Damage: {int(overlayA.damage*100):3}%   ║" & "\n")
-
-  let aLimbs = limbsToFPN(state.a, overlayA)
-  result.add(fmt"║   Limbs: {aLimbs}  Momentum: {int(state.a.momentum.linear*10):+3} lin, {int(state.a.momentum.rotational):+3} rot ║" & "\n")
-
-  # Distance
   let distStr = case state.distance:
     of Contact: "CONTACT"
     of Short: "SHORT"
     of Medium: "MEDIUM"
     of Long: "LONG"
     of VeryLong: "VERY LONG"
+  result.add boxed("")
+  result.add boxed(fmt"                  ←  {distStr:^10}  →")
+  result.add boxed("")
 
-  result.add("║                                                           ║\n")
-  result.add(fmt"║                  ←  {distStr:^10}  →                  ║" & "\n")
-  result.add("║                                                           ║\n")
-
-  # Fighter B
-  result.add(fmt"║ Fighter B ({stanceToChar(state.b.pos.stance)})                                               ║" & "\n")
-  result.add(fmt"║   Balance: {int(state.b.pos.balance*100):3}%  Fatigue: {int(overlayB.fatigue*100):3}%  Damage: {int(overlayB.damage*100):3}%   ║" & "\n")
-
-  let bLimbs = limbsToFPN(state.b, overlayB)
-  result.add(fmt"║   Limbs: {bLimbs}  Momentum: {int(state.b.momentum.linear*10):+3} lin, {int(state.b.momentum.rotational):+3} rot ║" & "\n")
-
-  # Footer
-  result.add("╠═══════════════════════════════════════════════════════════╣\n")
+  result.add fighterLines("B", state.b, overlayB)
+  result.add("╠" & "═".repeat(59) & "╣\n")
   let turnStr = if currentTurn == FighterA: "A" else: "B"
-  result.add(fmt"║ Turn: {turnStr}   Move: {state.sequenceLength:3}                                      ║" & "\n")
-  result.add("╚═══════════════════════════════════════════════════════════╝\n")
+  result.add boxed(fmt" Turn: {turnStr}   Move: {state.sequenceLength:3}")
+  result.add("╚" & "═".repeat(59) & "╝\n")
 
 proc toCompactBoard*(state: FightState, overlayA = createFreshOverlay(),
                      overlayB = createFreshOverlay()): string =

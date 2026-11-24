@@ -18,7 +18,10 @@ proc clearScreen() =
 
 proc waitForKey() =
   echo "\n[Press ENTER to continue, 'q' to quit]"
-  let input = readLine(stdin)
+  var input: string
+  if not readLine(stdin, input):
+    # no terminal (stdin closed or piped): nothing to wait for, keep going
+    return
   if input.toLower() == "q":
     quit(0)
 
@@ -35,8 +38,8 @@ proc visualizeFight*(stepByStep: bool = true, maxMoves: int = 50) =
 
   clearScreen()
   echo "╔═══════════════════════════════════════════════════════════╗"
-  echo "║           MARTIAL ARTS SIMULATION ENGINE                 ║"
-  echo "║              Fight Visualization Mode                     ║"
+  echo "║               MARTIAL ARTS SIMULATION ENGINE              ║"
+  echo "║                  Fight Visualization Mode                 ║"
   echo "╚═══════════════════════════════════════════════════════════╝"
   echo ""
 
