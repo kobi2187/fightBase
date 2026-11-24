@@ -4,9 +4,11 @@
 ## Start here to validate that moves are realistic before scaling up.
 
 import ../src/game_tree
+import ../src/fight_types
 import ../src/moves
 import ../src/state_storage
-import std/[strformat, times]
+import std/[strformat, times, strutils, json]
+import db_connector/db_sqlite
 
 proc generateSmallTree() =
   echo "=== Martial Arts Tablebase Generator ==="
@@ -175,18 +177,21 @@ proc analyzeMoveEffectiveness() =
     let winRate = if total != "0": (parseInt(wins).float / parseInt(total).float * 100.0) else: 0.0
     echo fmt"  {moveId}: {wins}/{total} wins ({winRate:.1f}%), avg length: {avgLen}"
 
+proc pause(msg: string) =
+  ## Wait for Enter when run interactively; continue immediately when stdin is closed (CI, pipes).
+  echo ""
+  echo msg
+  try: discard stdin.readLine()
+  except EOFError: discard
+
 when isMainModule:
   # Run the example
   generateSmallTree()
 
-  echo ""
-  echo "Press Enter to inspect states..."
-  discard stdin.readLine()
+  pause("Press Enter to inspect states...")
   inspectStates()
 
-  echo ""
-  echo "Press Enter to analyze move effectiveness..."
-  discard stdin.readLine()
+  pause("Press Enter to analyze move effectiveness...")
   analyzeMoveEffectiveness()
 
   echo ""

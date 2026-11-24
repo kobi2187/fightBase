@@ -7,7 +7,7 @@ import moves
 import vulnerabilities
 import constraints
 import state_storage
-import std/[options, json, strformat, times, tables, hashes]
+import std/[options, json, strformat, times, tables, hashes, sequtils, strutils]
 import db_connector/db_sqlite
 
 type
@@ -36,8 +36,8 @@ type
     hitHistory*: seq[VulnerabilityHit]
 
   GameTreeDB* = ref object
-    db: DbConn
-    filename: string
+    db*: DbConn          ## exported so analysis scripts can run ad-hoc queries
+    filename*: string
 
   TreeStats* = object
     totalStates*: int
@@ -409,11 +409,22 @@ proc insertPathDamage*(
 
 proc getPathDamage*(gtdb: GameTreeDB, stateHash: string, fromHash: string): PathDamage =
   ## Get accumulated damage to this state
-  let row = gtdb.db.getRow(sql"""
-    SELECT cumulative_damage_p1, cumulative_damage_p2
-    FROM path_damage
-    WHERE state_hash = ? AND from_hash = ?
-  """, stateHash, fromHash)
+  ## Rows are keyed by (state, parent). An empty `fromHash` means "any parent":
+  ## positions reached by several paths keep the first recorded path's damage
+  ## (damage is path-dependent here; see docs/SOLVER.md for the exact model).
+  let row = if fromHash.len > 0:
+    gtdb.db.getRow(sql"""
+      SELECT cumulative_damage_p1, cumulative_damage_p2
+      FROM path_damage
+      WHERE state_hash = ? AND from_hash = ?
+    """, stateHash, fromHash)
+  else:
+    gtdb.db.getRow(sql"""
+      SELECT cumulative_damage_p1, cumulative_damage_p2
+      FROM path_damage
+      WHERE state_hash = ?
+      ORDER BY rowid LIMIT 1
+    """, stateHash)
 
   if row[0] != "":
     result.damagePlayer1 = parseFloat(row[0])
@@ -547,6 +558,30 @@ proc expandLeafStates*(gtdb: GameTreeDB, batchSize: int = 100): int =
 
   return newStatesCount
 
+proc getTreeStats*(gtdb: GameTreeDB): TreeStats =
+  ## Get statistics about the generated tree
+  let totalRow = gtdb.db.getRow(sql"SELECT COUNT(*) FROM states")
+  result.totalStates = parseInt(totalRow[0])
+
+  let termRow = gtdb.db.getRow(sql"SELECT COUNT(*) FROM states WHERE is_terminal = 1")
+  result.terminalStates = parseInt(termRow[0])
+
+  let p1WinRow = gtdb.db.getRow(sql"SELECT COUNT(*) FROM states WHERE winner = 'Player1'")
+  result.player1Wins = parseInt(p1WinRow[0])
+
+  let p2WinRow = gtdb.db.getRow(sql"SELECT COUNT(*) FROM states WHERE winner = 'Player2'")
+  result.player2Wins = parseInt(p2WinRow[0])
+
+  result.draws = result.terminalStates - result.player1Wins - result.player2Wins
+
+  let avgRow = gtdb.db.getRow(sql"""
+    SELECT AVG(sequence_length) FROM states WHERE is_terminal = 1
+  """)
+  result.avgGameLength = if avgRow[0] != "": parseFloat(avgRow[0]) else: 0.0
+
+  let maxRow = gtdb.db.getRow(sql"SELECT MAX(sequence_length) FROM states")
+  result.maxDepth = if maxRow[0] != "": parseInt(maxRow[0]) else: 0
+
 # ============================================================================
 # Main generation loop
 # ============================================================================
@@ -583,30 +618,6 @@ proc generateGameTree*(
 
   # Gather stats
   result = getTreeStats(gtdb)
-
-proc getTreeStats*(gtdb: GameTreeDB): TreeStats =
-  ## Get statistics about the generated tree
-  let totalRow = gtdb.db.getRow(sql"SELECT COUNT(*) FROM states")
-  result.totalStates = parseInt(totalRow[0])
-
-  let termRow = gtdb.db.getRow(sql"SELECT COUNT(*) FROM states WHERE is_terminal = 1")
-  result.terminalStates = parseInt(termRow[0])
-
-  let p1WinRow = gtdb.db.getRow(sql"SELECT COUNT(*) FROM states WHERE winner = 'Player1'")
-  result.player1Wins = parseInt(p1WinRow[0])
-
-  let p2WinRow = gtdb.db.getRow(sql"SELECT COUNT(*) FROM states WHERE winner = 'Player2'")
-  result.player2Wins = parseInt(p2WinRow[0])
-
-  result.draws = result.terminalStates - result.player1Wins - result.player2Wins
-
-  let avgRow = gtdb.db.getRow(sql"""
-    SELECT AVG(sequence_length) FROM states WHERE is_terminal = 1
-  """)
-  result.avgGameLength = if avgRow[0] != "": parseFloat(avgRow[0]) else: 0.0
-
-  let maxRow = gtdb.db.getRow(sql"SELECT MAX(sequence_length) FROM states")
-  result.maxDepth = if maxRow[0] != "": parseInt(maxRow[0]) else: 0
 
 proc `$`*(stats: TreeStats): string =
   fmt"""

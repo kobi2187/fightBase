@@ -1,0 +1,15 @@
+{
+  "ko": 0.332,
+  "submission": 0.197,
+  "decision": 0.468,
+  "strikeAccuracy": 0.42,
+  "accuracyWeight": 0.5,
+  "notes": "Finish breakdown: all-time UFC results, about 8,500 bouts (MMA.SOCIAL finish-rate table: 33.2% KO/TKO, 19.7% submission, 46.8% decision; AgentMMA's decision-rate analysis reports 32.6% / 19.3% / 46.8%). Strike accuracy: no league-wide figure was found; 0.42 is the simple mean of career significant-strike accuracy on nine UFC.com athlete pages (a small, non-random sample), so it gets half weight. Replace these with your own dataset's numbers.",
+  "sources": [
+    "https://mma.social/stats/finish-rates",
+    "https://agentmma.com/mma-lab/ufc-decision-rate",
+    "https://www.ufc.com/athlete/patrick-cote",
+    "https://www.ufc.com/athlete/nate-marquardt",
+    "https://www.ufc.com/athlete/rory-macdonald"
+  ]
+}

@@ -2,6 +2,7 @@
 ## Maps all human body weak points with tactical data
 
 import fight_types
+import std/algorithm
 
 type
   VulnerabilityZone* = enum
@@ -107,6 +108,9 @@ proc getPostureExposureModifier*(posture: PostureLevel, heightLevel: HeightZone)
     of hzMid: 1.6    # Back/ribs very exposed
     of hzLow: 0.9    # Legs moving, harder to target
 
+proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData
+  ## Forward declaration; defined below with the per-zone data table.
+
 # Calculate reachability from a given position and stance
 proc calculateReachability*(
   attacker: Fighter,
@@ -170,11 +174,13 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
       exposureDefault: 0.9,       # Usually exposed
       exposureInStance: [
         skNeutral: 0.9,
-        skOrthodox: 0.85,         # Slightly covered by lead hand
+        skOrthodox: 0.85,  # Slightly covered by lead hand
         skSouthpaw: 0.85,
-        skWrestling: 0.6,         # Lower, more protected
-        skBladed: 0.95,           # Very exposed
-        skSquare: 0.9
+        skSquare: 0.9,
+        skWide: 0.9,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.85,  # narrow base: same exposure as orthodox (assumed)
+        skBladed: 0.95,  # Very exposed
+        skWrestling: 0.6  # Lower, more protected
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 0.8,
@@ -198,9 +204,11 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
         skNeutral: 0.7,
         skOrthodox: 0.6,
         skSouthpaw: 0.6,
-        skWrestling: 0.5,
+        skSquare: 0.7,
+        skWide: 0.7,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.6,  # narrow base: same exposure as orthodox (assumed)
         skBladed: 0.8,
-        skSquare: 0.7
+        skWrestling: 0.5
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 0.9,
@@ -224,9 +232,11 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
         skNeutral: 0.95,
         skOrthodox: 0.9,
         skSouthpaw: 0.9,
-        skWrestling: 0.7,
+        skSquare: 0.95,
+        skWide: 0.95,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.9,  # narrow base: same exposure as orthodox (assumed)
         skBladed: 0.98,
-        skSquare: 0.95
+        skWrestling: 0.7
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 1.0,                 # Maximum pain
@@ -250,9 +260,11 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
         skNeutral: 0.8,
         skOrthodox: 0.7,
         skSouthpaw: 0.7,
-        skWrestling: 0.5,          # Chin tucked
+        skSquare: 0.8,
+        skWide: 0.8,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.7,  # narrow base: same exposure as orthodox (assumed)
         skBladed: 0.85,
-        skSquare: 0.8
+        skWrestling: 0.5  # Chin tucked
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 0.9,
@@ -276,9 +288,11 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
         skNeutral: 0.7,
         skOrthodox: 0.5,
         skSouthpaw: 0.5,
-        skWrestling: 0.3,          # Well protected
+        skSquare: 0.7,
+        skWide: 0.7,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.5,  # narrow base: same exposure as orthodox (assumed)
         skBladed: 0.8,
-        skSquare: 0.7
+        skWrestling: 0.3  # Well protected
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 1.0,
@@ -301,11 +315,13 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
       exposureDefault: 0.8,
       exposureInStance: [
         skNeutral: 0.8,
-        skOrthodox: 0.6,           # Turned away
+        skOrthodox: 0.6,  # Turned away
         skSouthpaw: 0.6,
-        skWrestling: 0.5,
-        skBladed: 0.95,            # Very exposed
-        skSquare: 0.9
+        skSquare: 0.9,
+        skWide: 0.9,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.6,  # narrow base: same exposure as orthodox (assumed)
+        skBladed: 0.95,  # Very exposed
+        skWrestling: 0.5
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 0.9,
@@ -327,11 +343,13 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
       exposureDefault: 0.6,
       exposureInStance: [
         skNeutral: 0.6,
-        skOrthodox: 0.4,           # Protected by stance
-        skSouthpaw: 0.8,           # More exposed
-        skWrestling: 0.5,
+        skOrthodox: 0.4,  # Protected by stance
+        skSouthpaw: 0.8,  # More exposed
+        skSquare: 0.6,
+        skWide: 0.6,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.4,  # narrow base: same exposure as orthodox (assumed)
         skBladed: 0.7,
-        skSquare: 0.6
+        skWrestling: 0.5
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 1.0,
@@ -355,9 +373,11 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
         skNeutral: 0.7,
         skOrthodox: 0.5,
         skSouthpaw: 0.5,
-        skWrestling: 0.6,
+        skSquare: 0.7,
+        skWide: 0.7,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.5,  # narrow base: same exposure as orthodox (assumed)
         skBladed: 0.8,
-        skSquare: 0.7
+        skWrestling: 0.6
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 0.95,
@@ -382,9 +402,11 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
         skNeutral: 0.7,
         skOrthodox: 0.5,
         skSouthpaw: 0.5,
-        skWrestling: 0.3,          # Well protected
-        skBladed: 0.9,             # Very exposed
-        skSquare: 0.8
+        skSquare: 0.8,
+        skWide: 0.8,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.5,  # narrow base: same exposure as orthodox (assumed)
+        skBladed: 0.9,  # Very exposed
+        skWrestling: 0.3  # Well protected
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 1.0,
@@ -408,9 +430,11 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
         skNeutral: 0.9,
         skOrthodox: 0.85,
         skSouthpaw: 0.85,
-        skWrestling: 0.8,
+        skSquare: 0.9,
+        skWide: 0.9,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.85,  # narrow base: same exposure as orthodox (assumed)
         skBladed: 0.95,
-        skSquare: 0.9
+        skWrestling: 0.8
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 0.95,
@@ -434,9 +458,11 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
         skNeutral: 0.95,
         skOrthodox: 0.9,
         skSouthpaw: 0.9,
-        skWrestling: 0.85,
+        skSquare: 0.95,
+        skWide: 0.95,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.9,  # narrow base: same exposure as orthodox (assumed)
         skBladed: 0.98,
-        skSquare: 0.95
+        skWrestling: 0.85
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 0.9,
@@ -460,9 +486,11 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
         skNeutral: 1.0,
         skOrthodox: 1.0,
         skSouthpaw: 1.0,
-        skWrestling: 1.0,
+        skSquare: 1.0,
+        skWide: 1.0,  # wide base: same exposure as square (assumed)
+        skNarrow: 1.0,  # narrow base: same exposure as orthodox (assumed)
         skBladed: 1.0,
-        skSquare: 1.0
+        skWrestling: 1.0
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 0.85,
@@ -486,9 +514,11 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
         skNeutral: 0.85,
         skOrthodox: 0.75,
         skSouthpaw: 0.75,
-        skWrestling: 0.7,
+        skSquare: 0.85,
+        skWide: 0.85,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.75,  # narrow base: same exposure as orthodox (assumed)
         skBladed: 0.9,
-        skSquare: 0.85
+        skWrestling: 0.7
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 0.8,
@@ -513,9 +543,11 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
         skNeutral: 0.95,
         skOrthodox: 0.9,
         skSouthpaw: 0.9,
-        skWrestling: 0.85,
+        skSquare: 0.95,
+        skWide: 0.95,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.9,  # narrow base: same exposure as orthodox (assumed)
         skBladed: 0.98,
-        skSquare: 0.95
+        skWrestling: 0.85
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 0.9,
@@ -539,9 +571,11 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
         skNeutral: 0.7,
         skOrthodox: 0.6,
         skSouthpaw: 0.6,
-        skWrestling: 0.5,
+        skSquare: 0.7,
+        skWide: 0.7,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.6,  # narrow base: same exposure as orthodox (assumed)
         skBladed: 0.75,
-        skSquare: 0.7
+        skWrestling: 0.5
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 0.95,
@@ -566,9 +600,11 @@ proc getVulnerabilityData*(zone: VulnerabilityZone): VulnerabilityData =
         skNeutral: 0.5,
         skOrthodox: 0.5,
         skSouthpaw: 0.5,
-        skWrestling: 0.5,
+        skSquare: 0.5,
+        skWide: 0.5,  # wide base: same exposure as square (assumed)
+        skNarrow: 0.5,  # narrow base: same exposure as orthodox (assumed)
         skBladed: 0.5,
-        skSquare: 0.5
+        skWrestling: 0.5
       ],
       effectOnHit: VulnerabilityEffect(
         pain: 0.5,
@@ -625,8 +661,6 @@ proc getBestTargets*(
     result.add((zone: zone, score: score))
 
   # Sort by score descending
-  result.sort(proc(a, b: auto): int =
-    if b.score > a.score: 1
-    elif b.score < a.score: -1
-    else: 0
+  result.sort(proc(a, b: tuple[zone: VulnerabilityZone, score: float]): int =
+    cmp(b.score, a.score)
   )
