@@ -35,8 +35,21 @@ bin/fightsolve solve --pos Mid --a trained --b brawler
 bin/fightsolve explain --pos BehindB        # held from behind
 bin/fightsolve deep                         # full analysis: hours, all cores, resumable
 bin/fightsolve deep --render-only           # rebuild docs/playbook from the cache
-nimble test                                 # 39 tests
+nimble test                                 # 44 tests
+node tests/viewer/verify_3d.js              # 3D viewer checks (needs playwright)
 ```
+
+### 3D viewer
+
+Open `fpn_3d_viewer.html` in a browser (it loads three.js from a CDN). It
+animates sequences of the solver's actions between two mannequins, for example
+`Jab > Cross > Hook`, or `Jab / Slip` for a simultaneous beat. Planted feet stay
+on the floor through leg IK, and every strike is aimed at the opponent's real
+target (nose, jaw, temple, liver, groin, lead knee or thigh). So a strike thrown
+from range lands, and one thrown from out of range visibly falls short. The
+viewer resolves hits, blocks, parries and slips, supports southpaw stances, and
+reads and writes poses in MPN v2 (`MPN_FORMAT.md`). The playbook links each
+combination and optimal line to it (▶ 3D).
 
 The sections below describe the original simulator and tree generator. The
 tree generator (`game_tree.nim`) is superseded by the solver: its float-valued

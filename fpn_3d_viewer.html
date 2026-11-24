@@ -112,10 +112,12 @@
       <h3>Distance</h3>
       <div class="seg" id="distSeg"></div>
       <h3>Stances</h3>
-      <div class="row">
-        <span class="hint">A</span>
+      <div class="row" style="margin-bottom:6px">
+        <span class="hint" style="width:14px">A</span>
         <div class="seg" id="stanceA"><button data-v="orthodox" class="on n">Orthodox</button><button data-v="southpaw">Southpaw</button></div>
-        <span class="hint">B</span>
+      </div>
+      <div class="row">
+        <span class="hint" style="width:14px">B</span>
         <div class="seg" id="stanceB"><button data-v="orthodox" class="on n">Orthodox</button><button data-v="southpaw">Southpaw</button></div>
       </div>
       <h3>Actions</h3>
@@ -1034,7 +1036,7 @@ function frameCamera(kind) {
   controls.target.copy(mid);
   const narrow = stage.clientWidth < stage.clientHeight;
   const far = narrow ? 1.5 : 1;
-  if (kind === 'side') camera.position.set(mid.x + 0.6, 1.45, mid.z + 3.8 * far);
+  if (kind === 'side') camera.position.set(mid.x + 0.7, 1.5, mid.z + 4.4 * far);
   if (kind === 'a' || kind === 'b') {
     // Over the shoulder: behind one fighter, looking at the other.
     const me = kind === 'a' ? ax : bx, other = kind === 'a' ? bx : ax;
@@ -1185,6 +1187,7 @@ function placeStatic() {
     // Strike presets are aimed at the opponent's guard pose.
     fighters[who].apply(manual[who] || stancePose(who));
   }
+  document.getElementById('hudRight').textContent = 'static pose';
   clearTrails();
 }
 const poseWhoSeg = document.getElementById('poseWho');

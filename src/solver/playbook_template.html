@@ -115,6 +115,11 @@ const pct = (x) => (100 * x).toFixed(1) + "%";
 const pts = (x) => ((x >= 0 ? "+" : "") + (100 * x).toFixed(1));
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const gloss = Object.fromEntries(DATA.glossary.map((g) => [g.action, g]));
+// Open a line in the 3D viewer (repository root), at the range of the scenario's position.
+const RANGE = (p) => /^Long/.test(p) ? "l" : /^Mid/.test(p) ? "m" : /^Close/.test(p) ? "s" : /^(Clinch|Behind)/.test(p) ? "c" : "m";
+const view3d = (actions, pos) =>
+  ` <a class="muted" style="font-size:.8rem;white-space:nowrap" target="_blank" rel="noopener" title="Animate in the 3D viewer"
+     href="../../fpn_3d_viewer.html?seq=${encodeURIComponent(actions.join(" > "))}&dist=${RANGE(pos)}">▶ 3D</a>`;
 const name = (a) => `<span title="${esc((gloss[a] || {}).meaning || a)}">${esc(a)}</span>`;
 let attacker = 0, scenario = 0;
 
@@ -183,12 +188,12 @@ function renderDetail() {
   if (s.lines.length) {
     h += `<h3>Lines optimal play follows</h3><ul class="lines">`;
     for (const l of s.lines)
-      h += `<li>${l.actions.map(name).join(" → ")} <span class="muted">· played ${pct(l.prob)} · P(safe) ${pct(l.value)}${l.finishedSafe > 0.005 ? ` · ends it safely ${pct(l.finishedSafe)}` : ""}</span></li>`;
+      h += `<li>${l.actions.map(name).join(" → ")}${view3d(l.actions, s.position)} <span class="muted">· played ${pct(l.prob)} · P(safe) ${pct(l.value)}${l.finishedSafe > 0.005 ? ` · ends it safely ${pct(l.finishedSafe)}` : ""}</span></li>`;
     h += `</ul>`;
   }
   h += `<h3>Combinations</h3><div class="tablewrap"><table><tr><th>Combination</th><th>Source</th><th>Expected</th><th>If he reads it</th><th>Dealt</th><th>Stuns</th><th>Taken</th><th>Executed</th></tr>`;
   for (const c of s.combos)
-    h += `<tr><td>${c.plan.map(name).join(" → ")}</td><td class="muted">${esc(c.source)}${c.vsAttack ? ` (he opens with ${esc(c.vsAttack)})` : ""}</td>
+    h += `<tr><td>${c.plan.map(name).join(" → ")}${view3d(c.plan, s.position)}</td><td class="muted">${esc(c.source)}${c.vsAttack ? ` (he opens with ${esc(c.vsAttack)})` : ""}</td>
       <td class="n">${pct(c.expected)}</td><td class="n">${pct(c.guaranteed)}</td><td class="n">${c.dealt.toFixed(2)}</td>
       <td class="n">${c.stuns.toFixed(2)}</td><td class="n">${c.taken.toFixed(2)}</td><td class="n">${pct(c.executed)}</td></tr>`;
   h += `</table></div><p class="muted" style="font-size:.85rem">Dealt / taken: expected damage levels during the combination (${DATA.damageLevels} levels incapacitate). Executed: how often every step was possible in the position it reached.</p>`;

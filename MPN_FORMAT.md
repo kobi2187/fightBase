@@ -1,215 +1,106 @@
-# MPN (Mannequin Position Notation)
+# MPN (Mannequin Position Notation), version 2
 
-Pure physical pose notation for 3D visualization - **NO game state**, just joint angles.
+MPN records the physical pose of a fighter as joint angles, for drawing. It holds no
+game state: balance, damage and fatigue belong to FPN and the solver.
 
-## Philosophy
-
-MPN separates **physical pose** from **game state**:
-- **MPN** = Joint angles, rotations, body position (visualization)
-- **FPN** = Balance, fatigue, damage, recovery (game simulation)
-
-The pose is "the position or state as a consequence of the last move."
+`fpn_3d_viewer.html` reads and writes it (Notation tab), and so does
+`src/mannequin_notation.nim` (`poseToMPN`, `mpnToPose`).
 
 ## Format
 
-### Single Fighter
-```
-lean.rotation.shoulders.elbows.hips.knees.stance
-```
-
-### Full Scene
-```
-fighter_a_mpn/fighter_b_mpn/distance
-```
-
-## Components
-
-### 1. Lean (cm)
-```
-forward_back,left_right
-```
-- `forward_back`: -30 to +30 cm (+ = forward, - = back)
-- `left_right`: -20 to +20 cm (+ = right, - = left)
-
-**Example:** `5,0` = 5cm forward lean, no side lean
-
-### 2. Rotation (degrees)
-```
-hip,torso,neck
-```
-- `hip`: -45 to +45° (rotation around vertical axis)
-- `torso`: -35 to +35° (relative to hips)
-- `neck`: -30 to +30° (head turn)
-
-**Example:** `10,15,2` = 10° hip rotation, 15° torso rotation, 2° neck turn
-
-### 3. Shoulders (degrees)
-```
-left_pitch,left_roll,right_pitch,right_roll
-```
-- `pitch`: -60 to +60° (forward/back swing)
-- `roll`: 0 to 60° (raising arm sideways)
-
-**Example:** `20,10,25,15` = Left shoulder (20° pitch, 10° roll), Right shoulder (25° pitch, 15° roll)
-
-### 4. Elbows (degrees)
-```
-left_bend,right_bend
-```
-- `0` = straight arm
-- `90` = right angle (guard position)
-- `150` = fully bent
-
-**Example:** `90,95` = Left elbow 90° bent, Right elbow 95° bent
-
-### 5. Hips (degrees)
-```
-left_pitch,left_roll,right_pitch,right_roll
-```
-- `pitch`: -20 to +80° (leg forward/back)
-- `roll`: -30 to +30° (leg sideways)
-
-**Example:** `10,0,-5,0` = Left leg 10° forward, Right leg 5° back
-
-### 6. Knees (degrees)
-```
-left_bend,right_bend
-```
-- `0` = straight leg
-- `45` = deep stance
-- `90` = bent (sitting position)
-
-**Example:** `15,20` = Left knee 15° bent, Right knee 20° bent
-
-### 7. Stance
-```
-width,facing
-```
-- `width`: 20-80 cm between feet
-- `facing`: 0-180° which direction facing
-
-**Example:** `45,90` = 45cm stance width, facing 90° (opponent)
-
-## Complete Examples
-
-### Neutral Orthodox Stance
-```
-0,0.0,0,0.20,5,20,5.90,90.10,0,-5,0.15,15.40,90
-```
-Decoded:
-- Lean: 0cm forward, 0cm sideways
-- Rotation: 0° hip, 0° torso, 0° neck
-- Shoulders: L(20° pitch, 5° roll) R(20° pitch, 5° roll) - guard position
-- Elbows: L(90° bent) R(90° bent) - guard position
-- Hips: L(10° pitch, 0° roll) R(-5° pitch, 0° roll) - orthodox stance
-- Knees: L(15° bent) R(15° bent) - slight bend
-- Stance: 40cm width, facing 90°
-
-### Jab Position
-```
-8,0.8,12,0.-35,8,-30,10.15,90.12,0,-5,0.20,15.40,90
-```
-Decoded:
-- Lean: 8cm forward, 0cm sideways - leaning into punch
-- Rotation: 8° hip, 12° torso, 0° neck - body rotation
-- Shoulders: L(-35° pitch, 8° roll) R(-30° pitch, 10° roll) - left arm extended forward
-- Elbows: L(15° bent) R(90° bent) - left arm almost straight, right at guard
-- Hips: L(12° pitch, 0° roll) R(-5° pitch, 0° roll) - front leg forward
-- Knees: L(20° bent) R(15° bent) - slight more bend on front leg
-- Stance: 40cm width, facing 90°
-
-### Round Kick
-```
-0,-15.60,30,0.20,5,20,5.90,90.10,0,80,45.25,40.15,90
-```
-Decoded:
-- Lean: 0cm forward, -15cm to left - leaning away from kick
-- Rotation: 60° hip, 30° torso, 0° neck - heavy rotation
-- Shoulders: L(20° pitch, 5° roll) R(20° pitch, 5° roll) - arms at guard
-- Elbows: L(90° bent) R(90° bent) - guard position
-- Hips: L(10° pitch, 0° roll) R(80° pitch, 45° roll) - right leg high and out
-- Knees: L(25° bent) R(40° bent) - standing leg bent, kicking leg partially extended
-- Stance: 15cm width (narrow - one leg up), facing 90°
-
-## Full Scene Example
+One fighter:
 
 ```
-0,0.0,0,0.20,5,20,5.90,90.10,0,-5,0.15,15.40,90/0,0.0,0,0.20,5,20,5.90,90.-10,0,5,0.15,15.40,90/m
+v2:lean.rotation.shoulders.elbows.hips.knees.stance
 ```
 
-This represents:
-- Fighter A (Red): Neutral orthodox stance
-- Fighter B (Blue): Neutral southpaw stance (mirrored hip positions)
-- Distance: `m` (Medium - 4 meters apart)
+A scene:
 
-## Using MPN
-
-### In Nim Code
-
-```nim
-import mannequin_notation
-
-# Create a pose
-let pose = createJabPose()
-
-# Convert to MPN string
-let mpn = poseToMPN(pose)
-echo mpn  # Output: 8,0.8,12,0.-35,8,-30,10.15,90.12,0,-5,0.20,15.40,90
-
-# Parse MPN back to pose
-let parsed = mpnToPose(mpn)
-echo "Hip rotation: ", parsed.hipRotation, "°"
-
-# Convert from fight state
-import fight_types
-let fighter: Fighter = ...  # From simulation
-let pose = fighterStateToMannequinPose(fighter)
+```
+fighterA/fighterB/distance
 ```
 
-### In Web Viewer
+Groups are separated by `.` and values inside a group by `,`. Every value is an
+integer.
 
-Open `fpn_3d_viewer.html` in a browser:
-1. Paste MPN string in the text area
-2. Click "Load Position"
-3. See articulated 3D mannequins with exact joint angles
-4. Click "Generate Random Pose" for random valid poses
+| Group | Values | Meaning |
+|---|---|---|
+| lean | `fwd,side` | degrees; `fwd` > 0 leans toward the opponent, `side` > 0 leans to the fighter's left |
+| rotation | `hip,torso,neck` | degrees about the vertical; > 0 turns the front toward the fighter's left (the right side comes forward). `torso` is relative to the hips. `neck` is an offset on top of looking at the opponent. |
+| shoulders | `lFlex,lAbd,lRot,rFlex,rAbd,rRot` | degrees; flexion raises the arm forward, abduction raises it sideways, internal rotation turns its front toward the body |
+| elbows | `l,r` | bend in degrees, 0 = straight |
+| hips | `lFlex,lAbd,lRot,rFlex,rAbd,rRot` | degrees; same conventions as the shoulders, for the legs |
+| knees | `l,r` | bend in degrees, 0 = straight |
+| stance | `width` | sideways distance between the feet in cm |
 
-### Distance Codes
+Flexion is positive everywhere: the arm hanging at the side is 0, and pointing
+straight ahead is about 90. The mannequin is about 1.75 m tall. When a pose is loaded,
+its lowest sole is placed on the floor.
 
-In full scene format (`fighter_a/fighter_b/distance`):
-- `c` = Contact (1.5m)
-- `s` = Short (2.5m)
-- `m` = Medium (4m)
-- `l` = Long (6m)
-- `v` = Very Long (8m)
+Distance codes are the space between the two fighters' hips:
 
-## MPN vs FPN
+| Code | Range | Metres |
+|---|---|---|
+| `c` | clinch | 0.50 |
+| `s` | close (elbows, knees) | 0.72 |
+| `m` | punching | 0.98 |
+| `l` | kicking | 1.12 |
+| `v` | out of range | 2.10 |
 
-| Aspect | MPN | FPN |
-|--------|-----|-----|
-| **Purpose** | Visualization | Game simulation |
-| **Contains** | Joint angles only | Balance, fatigue, damage, limb states |
-| **Derived** | From move execution | From game rules |
-| **Usage** | 3D viewer, animation | Fight engine, AI |
-| **Deterministic** | Same MPN = same visual | Same FPN = same game state |
+## Examples
 
-**Relationship:** FPN describes game state → `fighterStateToMannequinPose()` → MPN describes visual pose
+These were exported from the viewer. They are also the reference poses in
+`mannequin_notation.nim`.
 
-## Benefits
+Orthodox guard: bladed hips, hands at the chin, lead leg forward.
 
-1. **Clean separation**: Visualization logic separate from game logic
-2. **Deterministic**: Same MPN always produces identical visual pose
-3. **Portable**: MPN strings work across any renderer (Three.js, Blender, Unity, etc.)
-4. **Precise**: Direct joint angles instead of derived approximations
-5. **Reusable**: Can visualize poses from any source (not just fight simulation)
+```
+v2:6,0.-35,-8,0.45,14,30,38,16,38.118,132.28,17,-17,7,18,-20.34,35.30
+```
 
-## Next Steps
+Jab at impact, at punching range. The hips are bladed by 57° in total, so the lead
+arm is flexed 103° and abducted 49°: it swings back across to the centre line, where
+the nose is.
 
-- **Animation**: Interpolate between MPN states for smooth transitions
-- **Physics validation**: Check if MPN poses are biomechanically valid
-- **Pose library**: Build collection of named poses for common moves
-- **ML training**: Use MPN as input/output for pose prediction networks
+```
+v2:0,0.-45,-12,0.103,49,5,38,16,38.18,132.24,20,-27,3,19,-10.39,26.30
+```
 
----
+Rear round kick at impact, at kicking range. The hips are turned over (102°), the right
+leg is abducted 108° and turned in, the knee is almost straight, and the body leans
+away.
 
-**MPN = The physical consequence of martial arts moves, frozen in notation** 🥋
+```
+v2:-6,24.102,18,0.45,14,30,38,16,38.118,132.29,-9,7,12,108,35.42,6.30
+```
+
+Scene, a jab against a guard at punching range:
+
+```
+v2:0,0.-45,-12,0.103,49,5,38,16,38.18,132.24,20,-27,3,19,-10.39,26.30/v2:6,0.-35,-8,0.45,14,30,38,16,38.118,132.28,17,-17,7,18,-20.34,35.30/m
+```
+
+## The viewer
+
+`fpn_3d_viewer.html` animates sequences of the solver's actions, such as
+`Jab > Cross > Hook` or `Jab / Slip` for a simultaneous beat. During playback, leg angles
+come from foot-planting IK, and strikes are aimed at the opponent's target points
+(nose, jaw, temple, liver, groin, lead thigh or knee, and so on). The Notation tab
+always shows the MPN of the frame on screen, with its solved angles.
+
+URL parameters:
+
+- `?seq=Jab>Cross&dist=m`: a sequence and a distance.
+- `&b=southpaw`: a southpaw stance for fighter B (`&a=southpaw` for A).
+- `&mpn=<scene>`: start from a static scene.
+- `&autoplay=0`: load without playing.
+
+## Legacy format
+
+Strings without the `v2:` prefix are read in the original format:
+
+- Lean is in cm and is converted at 60 cm of lever; a positive side value meant
+  leaning right.
+- Shoulder pitch is negative for forward.
+- Shoulders and hips may have 4 values (pitch and roll per side) or 6.
+- The stance group is `width_cm,facing`.
