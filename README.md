@@ -14,11 +14,16 @@ and solves it exactly with a certificate.
 Its main output is a **static self-defense playbook**:
 
 - [`docs/playbook/PLAYBOOK.md`](docs/playbook/PLAYBOOK.md): best responses,
-  answers to specific attacks, scored combinations, and what each weak point
-  and way of generating force is worth, for ten common situations and three
-  attacker types, each with a robustness check
-- `docs/playbook/index.html`: the same content as a self-contained page
-- `docs/playbook/playbook.json`: the data
+  answers to specific attacks, exhaustively searched combinations, and what
+  each weak point and way of generating force is worth, for ten common
+  situations and three attacker types, each with a robustness check
+- [`docs/playbook/DEEP_ANALYSIS.md`](docs/playbook/DEEP_ANALYSIS.md): which
+  assumptions drive the recommendations, robustness under joint perturbation
+  of every parameter, finer grids, technique synergy, the best response
+  against an attacker of unknown type
+- `docs/playbook/index.html`: everything as a self-contained page, with a
+  tablebase explorer for every reachable position
+- `docs/playbook/tablebase/` and `playbook.json`: the data
 
 How it works, what it assumes and where it stops being reliable:
 [`docs/SOLVER.md`](docs/SOLVER.md).
@@ -28,9 +33,23 @@ nimble install -y db_connector              # once
 nim c -d:release -o:bin/fightsolve src/fightsolve.nim
 bin/fightsolve solve --pos Mid --a trained --b brawler
 bin/fightsolve explain --pos BehindB        # held from behind
-bin/fightsolve playbook                     # regenerate docs/playbook (about 40 min)
-nimble test                                 # 35 tests
+bin/fightsolve deep                         # full analysis: hours, all cores, resumable
+bin/fightsolve deep --render-only           # rebuild docs/playbook from the cache
+nimble test                                 # 44 tests
+node tests/viewer/verify_3d.js              # 3D viewer checks (needs playwright)
 ```
+
+### 3D viewer
+
+Open `fpn_3d_viewer.html` in a browser (it loads three.js from a CDN). It
+animates sequences of the solver's actions between two mannequins, for example
+`Jab > Cross > Hook`, or `Jab / Slip` for a simultaneous beat. Planted feet stay
+on the floor through leg IK, and every strike is aimed at the opponent's real
+target (nose, jaw, temple, liver, groin, lead knee or thigh). So a strike thrown
+from range lands, and one thrown from out of range visibly falls short. The
+viewer resolves hits, blocks, parries and slips, supports southpaw stances, and
+reads and writes poses in MPN v2 (`MPN_FORMAT.md`). The playbook links each
+combination and optimal line to it (▶ 3D).
 
 The sections below describe the original simulator and tree generator. The
 tree generator (`game_tree.nim`) is superseded by the solver: its float-valued

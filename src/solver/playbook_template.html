@@ -64,6 +64,12 @@ td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .muted { color: var(--muted); }
 ul.lines { padding-left: 18px; margin: 6px 0; }
 .chip { display: inline-block; background: var(--accent-soft); border-radius: 6px; padding: 0 6px; margin: 1px 2px 1px 0; font-size: 0.85rem; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: end; }
+.controls label { display: flex; flex-direction: column; font-size: 0.8rem; color: var(--muted); gap: 3px; }
+.controls select { font: inherit; font-size: 0.9rem; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink); max-width: 100%; }
+fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px 10px; margin: 0; min-width: 0; }
+legend { font-size: 0.8rem; color: var(--muted); padding: 0 4px; }
 footer { max-width: 1100px; margin: 40px auto; padding: 0 16px 40px; color: var(--muted); font-size: 0.85rem; }
 @media (max-width: 600px) { h1 { font-size: 1.35rem; } .card .v { font-size: 1.15rem; } }
 </style>
@@ -80,6 +86,20 @@ footer { max-width: 1100px; margin: 40px auto; padding: 0 16px 40px; color: var(
   <h2>Situations</h2>
   <div class="grid" id="cards"></div>
   <div class="panel" id="detail"></div>
+  <section id="unknownSec" hidden>
+    <h2>Against an attacker of unknown type</h2>
+    <p class="lede">The response with the best worst case over the three attacker types.</p>
+    <div class="tablewrap"><table id="unknown"></table></div>
+  </section>
+  <section id="explorerSec" hidden>
+    <h2>Tablebase explorer</h2>
+    <p class="lede">Every position reachable from the ten situations, solved exactly. Pick the position and
+    both fighters' condition (uses the attacker type selected above).</p>
+    <div class="panel">
+      <div class="controls" id="explorerControls"></div>
+      <div id="explorerOut" style="margin-top:12px"></div>
+    </div>
+  </section>
   <h2>What your weapons are worth</h2>
   <p class="lede">Remove a target, a way of generating force, or a technique from your arsenal and re-solve every
   situation: the bar is the average loss in P(safe), in percentage points.</p>
@@ -95,10 +115,19 @@ const pct = (x) => (100 * x).toFixed(1) + "%";
 const pts = (x) => ((x >= 0 ? "+" : "") + (100 * x).toFixed(1));
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const gloss = Object.fromEntries(DATA.glossary.map((g) => [g.action, g]));
+// Open a line in the 3D viewer (repository root), at the range of the scenario's position.
+const RANGE = (p) => /^Long/.test(p) ? "l" : /^Mid/.test(p) ? "m" : /^Close/.test(p) ? "s" : /^(Clinch|Behind)/.test(p) ? "c" : "m";
+const view3d = (actions, pos) =>
+  ` <a class="muted" style="font-size:.8rem;white-space:nowrap" target="_blank" rel="noopener" title="Animate in the 3D viewer"
+     href="../../fpn_3d_viewer.html?seq=${encodeURIComponent(actions.join(" > "))}&dist=${RANGE(pos)}">▶ 3D</a>`;
 const name = (a) => `<span title="${esc((gloss[a] || {}).meaning || a)}">${esc(a)}</span>`;
 let attacker = 0, scenario = 0;
 
 function robust(r) {
+  if (r.mcChecks) {
+    const p = Math.round(100 * r.mcHolds / r.mcChecks);
+    return `<span class="badge ${p >= 90 ? "ok" : "mid"}">holds ${p}%</span>`;
+  }
   if (!r.checks) return '<span class="badge">not checked</span>';
   if (r.sameTop === r.checks) return `<span class="badge ok">robust ${r.checks}/${r.checks}</span>`;
   return `<span class="badge mid">holds ${r.sameTop}/${r.checks}</span>`;
@@ -124,7 +153,7 @@ function renderCards() {
 }
 function renderDetail() {
   const m = DATA.matches[attacker], s = m.scenarios[scenario], o = s.outcome;
-  const base = DATA.baseline.scenarios[scenario];
+  const base = DATA.baseline && DATA.baseline.scenarios.length ? DATA.baseline.scenarios[scenario] : null;
   const parts = [["escape", o.escape, "you get away"], ["ko", o.incapacitate, "you incapacitate him"],
     ["choke", o.choke, "you choke him"], ["nofin", o.noFinish, "no finish"],
     ["hurt", o.incapacitated + o.doubleKO, "you are incapacitated"], ["choked", o.choked, "you are choked"]];
@@ -132,11 +161,19 @@ function renderDetail() {
   let h = `<h3 style="margin-top:0">${esc(s.title)} <span class="muted">vs ${esc(m.attacker)}</span></h3>
     <p class="muted" style="margin:0">${esc(s.situation)}</p>
     <p style="margin:10px 0 0"><b>P(safe) ${pct(s.safe)}</b> with optimal play
-    <span class="muted">(untrained vs ${esc(DATA.baseline.attacker)}: ${pct(base.safe)})</span>. ${robust(s.robustness)}</p>
+    ${base ? `<span class="muted">(untrained vs ${esc(DATA.baseline.attacker)}: ${pct(base.safe)})</span>` : ""}. ${robust(s.robustness)}</p>
     <div class="stack">${parts.map(([k, v]) => `<span style="width:${100 * v}%;background:var(--${k})"></span>`).join("")}</div>
     <div class="legend">${parts.map(([k, v, l]) => `<span><i style="background:var(--${k})"></i>${l} ${pct(v)}</span>`).join("")}</div>`;
-  if (s.robustness.displacedBy.length)
-    h += `<p class="muted" style="font-size:.85rem">Top response changes under: ${s.robustness.displacedBy.map((d) => `${esc(d.perturbation)} → ${esc(d.newTop)}`).join("; ")}</p>`;
+  const rb = s.robustness;
+  if (rb.mcChecks) {
+    h += `<p class="muted" style="font-size:.85rem">With every assumption perturbed at once, the top response stays best (or within half a point) in
+      ${Math.round(100 * rb.mcHolds / rb.mcChecks)}% of ${rb.mcChecks} samples${rb.mcTops.length > 1 ? ` (best per sample: ${rb.mcTops.map((t) => `${esc(t[0])} ${t[1]}`).join(", ")})` : ""};
+      P(safe) ${pct(rb.valueLow)}–${pct(rb.valueHigh)} (5th–95th percentile). One parameter at a time: ${rb.oatHolds}/${rb.oatChecks}.
+      ${rb.grid.length ? "Finer damage grids: " + rb.grid.map((g) => `${g[0]} levels → ${esc(g[1])} (${pct(g[2])})`).join(", ") + "." : ""}</p>`;
+    if (rb.displacedBy.length)
+      h += `<p class="muted" style="font-size:.85rem">Single-parameter changes that flip it: ${rb.displacedBy.slice(0, 8).map((d) => `${esc(d.perturbation)} → ${esc(d.newTop)}`).join("; ")}${rb.displacedBy.length > 8 ? ` and ${rb.displacedBy.length - 8} more` : ""}</p>`;
+  } else if (rb.displacedBy.length)
+    h += `<p class="muted" style="font-size:.85rem">Top response changes under: ${rb.displacedBy.map((d) => `${esc(d.perturbation)} → ${esc(d.newTop)}`).join("; ")}</p>`;
   h += `<h3>Best first responses</h3><div class="tablewrap"><table><tr><th>Response</th><th>Expected</th><th class="barcell"></th><th>If he picks the best reply</th><th>Optimal play uses it</th></tr>`;
   for (const r of s.responses.slice(0, 10))
     h += `<tr><td>${name(r.action)} <span class="muted">${esc((gloss[r.action] || {}).meaning || "")}</span></td>
@@ -151,12 +188,12 @@ function renderDetail() {
   if (s.lines.length) {
     h += `<h3>Lines optimal play follows</h3><ul class="lines">`;
     for (const l of s.lines)
-      h += `<li>${l.actions.map(name).join(" → ")} <span class="muted">· played ${pct(l.prob)} · P(safe) ${pct(l.value)}${l.finishedSafe > 0.005 ? ` · ends it safely ${pct(l.finishedSafe)}` : ""}</span></li>`;
+      h += `<li>${l.actions.map(name).join(" → ")}${view3d(l.actions, s.position)} <span class="muted">· played ${pct(l.prob)} · P(safe) ${pct(l.value)}${l.finishedSafe > 0.005 ? ` · ends it safely ${pct(l.finishedSafe)}` : ""}</span></li>`;
     h += `</ul>`;
   }
   h += `<h3>Combinations</h3><div class="tablewrap"><table><tr><th>Combination</th><th>Source</th><th>Expected</th><th>If he reads it</th><th>Dealt</th><th>Stuns</th><th>Taken</th><th>Executed</th></tr>`;
   for (const c of s.combos)
-    h += `<tr><td>${c.plan.map(name).join(" → ")}</td><td class="muted">${esc(c.source)}${c.vsAttack ? ` (he opens with ${esc(c.vsAttack)})` : ""}</td>
+    h += `<tr><td>${c.plan.map(name).join(" → ")}${view3d(c.plan, s.position)}</td><td class="muted">${esc(c.source)}${c.vsAttack ? ` (he opens with ${esc(c.vsAttack)})` : ""}</td>
       <td class="n">${pct(c.expected)}</td><td class="n">${pct(c.guaranteed)}</td><td class="n">${c.dealt.toFixed(2)}</td>
       <td class="n">${c.stuns.toFixed(2)}</td><td class="n">${c.taken.toFixed(2)}</td><td class="n">${pct(c.executed)}</td></tr>`;
   h += `</table></div><p class="muted" style="font-size:.85rem">Dealt / taken: expected damage levels during the combination (${DATA.damageLevels} levels incapacitate). Executed: how often every step was possible in the position it reached.</p>`;
@@ -186,8 +223,69 @@ function renderStatic() {
     DATA.glossary.map((g) => `<tr><td>${esc(g.action)}</td><td>${esc(g.meaning)}</td><td class="muted">${esc(g.mechanics)}</td><td class="muted">${esc(g.target)}</td></tr>`).join("");
   $("foot").textContent = "Generated by fightsolve playbook (src/solver). Model description: docs/SOLVER.md.";
 }
-function render() { renderTabs(); renderCards(); renderDetail(); }
-renderStatic(); render(); renderWorth();
+const COND = ["ok", "off-balance", "stunned"], LOAD = ["rear loaded", "lead loaded"], LEGS = ["legs ok", "legs hurt"];
+const POSNAMES = {Long: "kicking range", Mid: "punching range", MidAngA: "punching range, you on the outside angle",
+  MidAngB: "punching range, he has the outside angle", Close: "elbow range", CloseAngA: "elbow range, you on the angle",
+  CloseAngB: "elbow range, he has the angle", Clinch: "tied up, even", ClinchA: "tied up, you have the better grip",
+  ClinchB: "tied up, he has the better grip", BehindA: "you are behind him", BehindB: "he is behind you",
+  OverA: "he is down, you standing", OverB: "you are down, he is standing", GuardA: "you on top in his guard",
+  GuardB: "he is on top in your guard", MountA: "you mounted him", MountB: "he mounted you",
+  BackA: "you have his back (ground)", BackB: "he has your back (ground)"};
+const exState = {pos: 1, a: [0, 0, 0, 0], b: [0, 0, 0, 0]};
+let tbIndex = {};
+function tbFor() {
+  const att = DATA.matches[attacker].attacker;
+  return DATA.tablebase && DATA.tablebase[att];
+}
+function buildIndex() {
+  tbIndex = {};
+  const tb = tbFor();
+  if (!tb) return;
+  for (const r of tb.rows) tbIndex[r.slice(0, 9).join(",")] = r;
+}
+function sel(id, opts, val, label) {
+  return `<label>${label}<select id="${id}">${opts.map((o, i) => `<option value="${i}" ${i === val ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></label>`;
+}
+function renderExplorerControls() {
+  const tb = tbFor();
+  if (!tb) return;
+  const pos = tb.positions.map((p) => POSNAMES[p] || p);
+  const dmg = [0, 1, 2, 3].map((d) => `damage ${d}`);
+  $("explorerControls").innerHTML = sel("exPos", pos, exState.pos, "Position") +
+    `<fieldset><legend>You</legend><div class="controls">${sel("exAd", dmg, exState.a[0], "Damage")}${sel("exAc", COND, exState.a[1], "Condition")}${sel("exAl", LOAD, exState.a[2], "Hips")}${sel("exAg", LEGS, exState.a[3], "Legs")}</div></fieldset>` +
+    `<fieldset><legend>Attacker</legend><div class="controls">${sel("exBd", dmg, exState.b[0], "Damage")}${sel("exBc", COND, exState.b[1], "Condition")}${sel("exBl", LOAD, exState.b[2], "Hips")}${sel("exBg", LEGS, exState.b[3], "Legs")}</div></fieldset>`;
+  const bind = (id, f) => $(id).onchange = (e) => { f(+e.target.value); renderExplorerOut(); };
+  bind("exPos", (v) => exState.pos = v);
+  ["d", "c", "l", "g"].forEach((k, i) => { bind("exA" + k, (v) => exState.a[i] = v); bind("exB" + k, (v) => exState.b[i] = v); });
+}
+function renderExplorerOut() {
+  const tb = tbFor();
+  if (!tb) return;
+  const key = [exState.pos, ...exState.a, ...exState.b].join(",");
+  const r = tbIndex[key];
+  if (!r) {
+    $("explorerOut").innerHTML = `<p class="muted">This combination is not reachable from the ten situations (for example, balance and hip loading do not exist on the ground), so it was not solved.</p>`;
+    return;
+  }
+  let h = `<p><b>P(safe) ${pct(r[9])}</b> with optimal play vs ${esc(DATA.matches[attacker].attacker)}.</p><div class="tablewrap"><table><tr><th>Best responses</th><th>Expected</th></tr>`;
+  for (let k = 10; k + 1 < r.length; k += 2) {
+    const a = tb.actions[r[k]];
+    h += `<tr><td>${name(a)} <span class="muted">${esc((gloss[a] || {}).meaning || "")}</span></td><td class="n">${pct(r[k + 1])}</td></tr>`;
+  }
+  $("explorerOut").innerHTML = h + "</table></div>";
+}
+function renderUnknown() {
+  if (!DATA.crossProfile) return;
+  $("unknownSec").hidden = false;
+  $("unknown").innerHTML = `<tr><th>Situation</th><th>Response</th><th>Worst case</th><th>Average</th><th>Best per attacker type</th></tr>` +
+    DATA.crossProfile.map((c) => `<tr><td>${esc(c.scenario)}</td><td>${name(c.action)}</td><td class="n">${pct(c.worst)}</td><td class="n">${pct(c.mean)}</td>
+      <td class="muted">${c.bestPer.map((b) => `${esc(b[0])}: ${esc(b[1])}`).join(", ")}</td></tr>`).join("");
+}
+function render() {
+  renderTabs(); renderCards(); renderDetail();
+  if (DATA.tablebase) { $("explorerSec").hidden = false; buildIndex(); renderExplorerControls(); renderExplorerOut(); }
+}
+renderStatic(); render(); renderWorth(); renderUnknown();
 </script>
 </body>
 </html>

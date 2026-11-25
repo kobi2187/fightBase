@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>FPN Fight Position Viewer</title>
   <style>
     body {
@@ -53,7 +54,14 @@
     canvas {
       border: 1px solid #ddd;
       border-radius: 4px;
+      max-width: 100%;
+      height: auto;
     }
+    @media (max-width: 600px) {
+      body { margin: 0; padding: 16px; }
+      #controls, #canvas-container { padding: 12px; }
+    }
+    * { box-sizing: border-box; }
     .examples {
       margin-top: 10px;
       font-size: 12px;
@@ -81,6 +89,7 @@
       <span class="example-link" onclick="loadExample(2)">After exchange</span>
       <span class="example-link" onclick="loadExample(3)">Close range</span>
       <span class="example-link" onclick="loadExample(4)">One damaged</span>
+      <span class="example-link" onclick="loadExample(5)">Kick vs jab</span>
     </div>
   </div>
 
@@ -96,7 +105,8 @@
       1: "o.100.0.0.0,0.0,0,50,0,0.----/s.100.0.0.0,0.0,0,50,0,0.----/m/A/0",
       2: "o.85.25.5.2,10.15,20,55,0,0.--E-/s.80.30.8.-1,5.-10,-15,45,0,0.-E--/s/B/5",
       3: "o.70.40.12.3,15.25,30,60,0,0.----/s.65.45.15.1,8.-15,-25,40,1,2.----/c/A/8",
-      4: "o.90.20.2.1,5.10,15,55,0,0.----/s.50.35.35.-2,0.-20,-30,35,1,4.X-E-/s/A/12"
+      4: "o.90.20.2.1,5.10,15,55,0,0.----/s.50.35.35.-2,0.-20,-30,35,1,4.X-E-/s/A/12",
+      5: "o.80.30.5.4,90.45,30,40,1,2.---E/s.85.20.0.2,0.10,10,55,0,0.-E--/m/B/9"
     };
 
     function loadExample(num) {
@@ -169,25 +179,42 @@
       return '#000';
     }
 
-    function drawStickFigure(fighter, centerX, facingRight) {
+    // Limb codes in FPN: '-' free, 'E' extended, 'X' damaged, 'B' both.
+    const isExtended = (c) => c === 'E' || c === 'B';
+    const isDamaged = (c) => c === 'X' || c === 'B';
+
+    function polyline(points, damaged) {
+      ctx.setLineDash(damaged ? [5, 5] : []);
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (const p of points.slice(1)) ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Side view. `dir` is +1 for a fighter facing right, -1 facing left;
+    // every "forward" offset is multiplied by it, so extended limbs reach
+    // toward the opponent whichever side the fighter is on.
+    function drawStickFigure(fighter, centerX, dir) {
       const baseY = canvas.height * 0.7;
       const height = 200;
 
-      // Balance affects lean
-      const balanceLean = (1 - fighter.balance) * 20;
-      const lean = facingRight ? balanceLean : -balanceLean;
+      // Lower balance = more lean (forward, as after an over-committed attack)
+      const lean = dir * (1 - fighter.balance) * 25;
 
-      // Positions
       const head = {x: centerX + lean, y: baseY - height};
-      const neck = {x: centerX + lean, y: baseY - height + 15};
-      const torso = {x: centerX, y: neck.y + 30};
+      const neck = {x: centerX + lean * 0.8, y: baseY - height + 15};
+      const chest = {x: centerX + lean * 0.5, y: neck.y + 30};
       const hips = {x: centerX, y: baseY - height * 0.4};
 
       const color = getColorForCondition(fighter.damage, fighter.fatigue);
       ctx.strokeStyle = color;
-      ctx.fillStyle = fighter.damage > 0.5 ? '#ffcccc' : 'white';
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
 
       // Head
+      ctx.lineWidth = 2.5;
+      ctx.fillStyle = fighter.damage > 0.5 ? '#ffcccc' : 'white';
       ctx.beginPath();
       ctx.arc(head.x, head.y, 15, 0, Math.PI * 2);
       ctx.fill();
@@ -195,111 +222,64 @@
 
       // Torso
       ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(neck.x, neck.y);
-      ctx.lineTo(torso.x, torso.y);
-      ctx.lineTo(hips.x, hips.y);
-      ctx.stroke();
+      polyline([neck, chest, hips], false);
 
-      // Arms
-      const shoulderWidth = 40;
-      const leftShoulder = {x: torso.x - shoulderWidth/2, y: torso.y};
-      const rightShoulder = {x: torso.x + shoulderWidth/2, y: torso.y};
-
+      // Arms: the lead arm sits slightly in front of the rear arm.
+      // Southpaw leads with the right side, everyone else with the left.
+      const leadIsRight = fighter.stance === 's';
       ctx.lineWidth = 2.5;
+      for (const side of ['left', 'right']) {
+        const code = fighter.limbs[side === 'left' ? 0 : 1];
+        const lead = (side === 'right') === leadIsRight;
+        const shoulder = {x: chest.x + dir * (lead ? 8 : -8), y: chest.y};
+        let elbow, hand;
+        if (isExtended(code)) {
+          // punch: arm straight out toward the opponent at shoulder height
+          elbow = {x: shoulder.x + dir * 35, y: shoulder.y - 2};
+          hand = {x: shoulder.x + dir * 72, y: shoulder.y - 4};
+        } else {
+          // guard: elbow down and forward, hand up near the chin
+          elbow = {x: shoulder.x + dir * (lead ? 18 : 10), y: shoulder.y + 28};
+          hand = {x: shoulder.x + dir * (lead ? 30 : 18), y: shoulder.y - 8};
+        }
+        polyline([shoulder, elbow, hand], isDamaged(code));
+      }
 
-      // Left arm (guard position or extended)
-      const leftExtended = fighter.limbs[0] === 'E' || fighter.limbs[0] === 'B';
-      const leftDamaged = fighter.limbs[0] === 'X' || fighter.limbs[0] === 'B';
-
-      if (leftDamaged) ctx.setLineDash([5, 5]);
-
-      const leftElbow = {
-        x: leftShoulder.x + (leftExtended ? -30 : -20),
-        y: leftShoulder.y + (leftExtended ? 10 : 30)
-      };
-      const leftHand = {
-        x: leftElbow.x + (leftExtended ? -40 : -10),
-        y: leftElbow.y + (leftExtended ? 15 : 20)
-      };
-
-      ctx.beginPath();
-      ctx.moveTo(leftShoulder.x, leftShoulder.y);
-      ctx.lineTo(leftElbow.x, leftElbow.y);
-      ctx.lineTo(leftHand.x, leftHand.y);
-      ctx.stroke();
-
-      ctx.setLineDash([]);
-
-      // Right arm
-      const rightExtended = fighter.limbs[1] === 'E' || fighter.limbs[1] === 'B';
-      const rightDamaged = fighter.limbs[1] === 'X' || fighter.limbs[1] === 'B';
-
-      if (rightDamaged) ctx.setLineDash([5, 5]);
-
-      const rightElbow = {
-        x: rightShoulder.x + (rightExtended ? 30 : 20),
-        y: rightShoulder.y + (rightExtended ? 10 : 30)
-      };
-      const rightHand = {
-        x: rightElbow.x + (rightExtended ? 40 : 10),
-        y: rightElbow.y + (rightExtended ? 15 : 20)
-      };
-
-      ctx.beginPath();
-      ctx.moveTo(rightShoulder.x, rightShoulder.y);
-      ctx.lineTo(rightElbow.x, rightElbow.y);
-      ctx.lineTo(rightHand.x, rightHand.y);
-      ctx.stroke();
-
-      ctx.setLineDash([]);
-
-      // Legs
+      // Legs: lead foot forward, rear foot back; an extended leg is a kick
+      // raised toward the opponent.
       ctx.lineWidth = 3;
+      const spread = fighter.stance === 'w' ? 55 : fighter.stance === 'z' ? 65 :
+                     fighter.stance === 'q' ? 20 : 40;
+      for (const side of ['left', 'right']) {
+        const code = fighter.limbs[side === 'left' ? 2 : 3];
+        const lead = (side === 'right') === leadIsRight;
+        let knee, foot;
+        if (isExtended(code)) {
+          knee = {x: hips.x + dir * 35, y: hips.y + 10};
+          foot = {x: hips.x + dir * 80, y: hips.y - 15};
+        } else {
+          const footX = hips.x + dir * (lead ? spread / 2 : -spread / 2);
+          knee = {x: (hips.x + footX) / 2 + dir * 6, y: hips.y + 55};
+          foot = {x: footX, y: baseY};
+        }
+        polyline([hips, knee, foot], isDamaged(code));
+      }
 
-      const legSpread = fighter.stance === 'w' ? 50 :
-                        fighter.stance === 'z' ? 60 : 30;
-
-      const leftLegDamaged = fighter.limbs[2] === 'X' || fighter.limbs[2] === 'B';
-      const rightLegDamaged = fighter.limbs[3] === 'X' || fighter.limbs[3] === 'B';
-
-      // Left leg
-      if (leftLegDamaged) ctx.setLineDash([5, 5]);
-
-      const leftKnee = {x: hips.x - legSpread/2, y: hips.y + 50};
-      const leftFoot = {x: leftKnee.x - 5, y: baseY};
-
-      ctx.beginPath();
-      ctx.moveTo(hips.x, hips.y);
-      ctx.lineTo(leftKnee.x, leftKnee.y);
-      ctx.lineTo(leftFoot.x, leftFoot.y);
-      ctx.stroke();
-
-      ctx.setLineDash([]);
-
-      // Right leg
-      if (rightLegDamaged) ctx.setLineDash([5, 5]);
-
-      const rightKnee = {x: hips.x + legSpread/2, y: hips.y + 50};
-      const rightFoot = {x: rightKnee.x + 5, y: baseY};
-
-      ctx.beginPath();
-      ctx.moveTo(hips.x, hips.y);
-      ctx.lineTo(rightKnee.x, rightKnee.y);
-      ctx.lineTo(rightFoot.x, rightFoot.y);
-      ctx.stroke();
-
-      ctx.setLineDash([]);
-
-      // Labels
+      // Labels above the head, running outward (away from the opponent) so
+      // the two fighters' labels never collide, even at contact range
       ctx.font = '12px monospace';
       ctx.fillStyle = color;
-      ctx.textAlign = 'center';
-      ctx.fillText(`${getStanceName(fighter.stance)}`, centerX, baseY - height - 25);
+      ctx.textAlign = dir > 0 ? 'right' : 'left';
+      const labelX = centerX + dir * 25;
+      const recovering = fighter.biomech.recovering ? ` · recovering (${fighter.biomech.frames})` : '';
+      ctx.fillText(`${getStanceName(fighter.stance)}${recovering}`, labelX, head.y - 40);
       ctx.font = '10px monospace';
       ctx.fillText(`Bal:${Math.round(fighter.balance*100)}% Fat:${Math.round(fighter.fatigue*100)}% Dmg:${Math.round(fighter.damage*100)}%`,
-                   centerX, baseY - height - 10);
+                   labelX, head.y - 24);
     }
+
+    // Gap between the fighters by FPN distance code (fraction of canvas width)
+    const separation = {c: 0.14, s: 0.24, m: 0.36, l: 0.48, v: 0.6};
 
     function renderFPN() {
       const fpnInput = document.getElementById('fpn').value.trim();
@@ -326,13 +306,19 @@
         ctx.lineTo(canvas.width, canvas.height * 0.7);
         ctx.stroke();
 
-        // Distance indicator
+        // Fighters stand as far apart as the distance says
+        const gap = canvas.width * (separation[state.distance] ?? 0.36);
+        const ax = canvas.width / 2 - gap / 2;
+        const bx = canvas.width / 2 + gap / 2;
+
+        // Distance indicator between the two fighters
         const distY = canvas.height * 0.15;
         ctx.strokeStyle = '#666';
+        ctx.lineWidth = 2;
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
-        ctx.moveTo(canvas.width * 0.25, distY);
-        ctx.lineTo(canvas.width * 0.75, distY);
+        ctx.moveTo(ax, distY);
+        ctx.lineTo(bx, distY);
         ctx.stroke();
         ctx.setLineDash([]);
 
@@ -341,9 +327,9 @@
         ctx.textAlign = 'center';
         ctx.fillText(getDistanceName(state.distance), canvas.width / 2, distY - 5);
 
-        // Draw fighters
-        drawStickFigure(state.fighterA, canvas.width * 0.25, true);
-        drawStickFigure(state.fighterB, canvas.width * 0.75, false);
+        // Draw fighters: A on the left facing right, B on the right facing left
+        drawStickFigure(state.fighterA, ax, 1);
+        drawStickFigure(state.fighterB, bx, -1);
 
         // Turn and move info
         ctx.font = '14px Arial';

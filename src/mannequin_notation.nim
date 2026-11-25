@@ -7,127 +7,127 @@ import std/[strformat, strutils, math]
 
 type
   MannequinPose* = object
-    ## Physical pose of a mannequin - all angles in degrees
-    # Body lean and rotation
-    leanForwardBack*: float      # cm, + = forward, - = back
-    leanLeftRight*: float         # cm, + = right, - = left
-    hipRotation*: float           # degrees, rotation around vertical axis
-    torsoRotation*: float         # degrees, relative to hips
-    neckRotation*: float          # degrees, head turn
+    ## Physical pose of a mannequin (MPN v2). Every angle is in degrees and
+    ## flexion is positive, the same conventions as fpn_3d_viewer.html:
+    ##   * leanForwardBack > 0 leans toward the opponent; leanLeftRight > 0 leans
+    ##     to the fighter's left.
+    ##   * hip/torso/neck rotation > 0 turns the front toward the fighter's left
+    ##     (the right side comes forward). An orthodox stance is bladed at about -35.
+    ##   * *Pitch = flexion (raising the limb forward), *Roll = abduction (away
+    ##     from the midline), *Yaw = internal rotation (front of the limb toward
+    ##     the midline).
+    ##   * elbow/knee bend: 0 = straight.
+    leanForwardBack*: float
+    leanLeftRight*: float
+    hipRotation*: float
+    torsoRotation*: float
+    neckRotation*: float          # offset on top of looking at the opponent
 
-    # Shoulders (relative to torso)
-    leftShoulderPitch*: float     # degrees, forward/back swing (X-axis)
-    leftShoulderRoll*: float      # degrees, raising arm sideways (Z-axis)
-    leftShoulderYaw*: float       # degrees, internal/external rotation (Y-axis)
+    leftShoulderPitch*: float
+    leftShoulderRoll*: float
+    leftShoulderYaw*: float
     rightShoulderPitch*: float
     rightShoulderRoll*: float
     rightShoulderYaw*: float
 
-    # Elbows
-    leftElbowBend*: float         # degrees, 0 = straight, 150 = fully bent
+    leftElbowBend*: float
     rightElbowBend*: float
 
-    # Hips (relative to pelvis)
-    leftHipPitch*: float          # degrees, leg forward/back (X-axis)
-    leftHipRoll*: float           # degrees, leg sideways abduction (Z-axis)
-    leftHipYaw*: float            # degrees, leg rotation inward/outward (Y-axis)
+    leftHipPitch*: float
+    leftHipRoll*: float
+    leftHipYaw*: float
     rightHipPitch*: float
     rightHipRoll*: float
     rightHipYaw*: float
 
-    # Knees
-    leftKneeBend*: float          # degrees, 0 = straight, 150 = bent
+    leftKneeBend*: float
     rightKneeBend*: float
 
-    # Stance
-    stanceWidth*: float           # meters, distance between feet
-    facingAngle*: float           # degrees, which direction facing
+    stanceWidth*: float           # metres between the feet (sideways)
+    facingAngle*: float           # degrees; kept for the legacy format only
 
-## MPN FORMAT (compact):
-## fighter_a/fighter_b/distance
-##
-## Fighter format: lean.rotation.shoulders.elbows.hips.knees.stance
-##   lean: fb,lr (forward-back in cm, left-right in cm)
-##   rotation: hip,torso,neck (all in degrees)
-##   shoulders: lp,lr,ly,rp,rr,ry (left pitch/roll/yaw, right pitch/roll/yaw)
-##   elbows: l,r (left bend, right bend in degrees)
-##   hips: lp,lr,ly,rp,rr,ry (left pitch/roll/yaw, right pitch/roll/yaw)
-##   knees: l,r (left bend, right bend in degrees)
-##   stance: width,facing (stance width in cm, facing angle in degrees)
-##
-## Example:
-## 5,0.10,5,2.20,10,25,0,15,30,0.90,95.0,0,5,0,0,5,0,0.15,20.45,90.30,0,90
-##
-## Decoded:
-##   Lean: 5cm forward, 0cm sideways
-##   Rotation: 10° hip, 5° torso, 2° neck
-##   Shoulders: L(20° pitch, 10° roll, 25° yaw) R(0° pitch, 15° roll, 30° yaw)
-##   Elbows: L(90° bent) R(95° bent)
-##   Hips: L(0° pitch, 5° roll, 0° yaw) R(0° pitch, 5° roll, 0° yaw)
-##   Knees: L(15° bent) R(20° bent)
-##   Stance: 45cm width, facing 90°
+## MPN v2 (one fighter):
+##   v2:lean.rotation.shoulders.elbows.hips.knees.stance
+##     lean      fwd,side
+##     rotation  hip,torso,neck
+##     shoulders lFlex,lAbd,lRot,rFlex,rAbd,rRot
+##     elbows    l,r
+##     hips      lFlex,lAbd,lRot,rFlex,rAbd,rRot
+##     knees     l,r
+##     stance    width_cm
+## Values are integers. A scene is `A/B/distance` (distance c, s, m, l or v).
+## The legacy format (no `v2:` prefix: lean in cm, shoulder pitch negative =
+## forward, a facing angle after the stance width) is still read.
+
+proc r(x: float): string = $int(round(x))
 
 proc poseToMPN*(pose: MannequinPose): string =
-  ## Convert pose to compact MPN notation
-  result = fmt"{pose.leanForwardBack:.0f},{pose.leanLeftRight:.0f}."  # lean
-  result.add fmt"{pose.hipRotation:.0f},{pose.torsoRotation:.0f},{pose.neckRotation:.0f}."  # rotation
-  result.add fmt"{pose.leftShoulderPitch:.0f},{pose.leftShoulderRoll:.0f},{pose.leftShoulderYaw:.0f},"
-  result.add fmt"{pose.rightShoulderPitch:.0f},{pose.rightShoulderRoll:.0f},{pose.rightShoulderYaw:.0f}."  # shoulders
-  result.add fmt"{pose.leftElbowBend:.0f},{pose.rightElbowBend:.0f}."  # elbows
-  result.add fmt"{pose.leftHipPitch:.0f},{pose.leftHipRoll:.0f},{pose.leftHipYaw:.0f},"
-  result.add fmt"{pose.rightHipPitch:.0f},{pose.rightHipRoll:.0f},{pose.rightHipYaw:.0f}."  # hips
-  result.add fmt"{pose.leftKneeBend:.0f},{pose.rightKneeBend:.0f}."  # knees
-  result.add fmt"{pose.stanceWidth*100:.0f},{pose.facingAngle:.0f}"  # stance (convert m to cm)
+  ## Compact MPN v2 string for one fighter.
+  let p = pose
+  "v2:" & [
+    [r p.leanForwardBack, r p.leanLeftRight].join(","),
+    [r p.hipRotation, r p.torsoRotation, r p.neckRotation].join(","),
+    [r p.leftShoulderPitch, r p.leftShoulderRoll, r p.leftShoulderYaw,
+     r p.rightShoulderPitch, r p.rightShoulderRoll, r p.rightShoulderYaw].join(","),
+    [r p.leftElbowBend, r p.rightElbowBend].join(","),
+    [r p.leftHipPitch, r p.leftHipRoll, r p.leftHipYaw,
+     r p.rightHipPitch, r p.rightHipRoll, r p.rightHipYaw].join(","),
+    [r p.leftKneeBend, r p.rightKneeBend].join(","),
+    r(p.stanceWidth * 100)].join(".")
 
 proc mpnToPose*(mpn: string): MannequinPose =
-  ## Parse MPN notation into pose
-  let parts = mpn.split('.')
+  ## Parse one fighter's MPN (v2, or the legacy format).
+  let v2 = mpn.startsWith("v2:")
+  let parts = (if v2: mpn[3 .. ^1] else: mpn).split('.')
   if parts.len != 7:
-    raise newException(ValueError, "Invalid MPN format: expected 7 parts")
-
-  # Lean
-  let leanParts = parts[0].split(',')
-  result.leanForwardBack = parseFloat(leanParts[0])
-  result.leanLeftRight = parseFloat(leanParts[1])
-
-  # Rotation
-  let rotParts = parts[1].split(',')
-  result.hipRotation = parseFloat(rotParts[0])
-  result.torsoRotation = parseFloat(rotParts[1])
-  result.neckRotation = parseFloat(rotParts[2])
-
-  # Shoulders
-  let shoulderParts = parts[2].split(',')
-  result.leftShoulderPitch = parseFloat(shoulderParts[0])
-  result.leftShoulderRoll = parseFloat(shoulderParts[1])
-  result.leftShoulderYaw = parseFloat(shoulderParts[2])
-  result.rightShoulderPitch = parseFloat(shoulderParts[3])
-  result.rightShoulderRoll = parseFloat(shoulderParts[4])
-  result.rightShoulderYaw = parseFloat(shoulderParts[5])
-
-  # Elbows
-  let elbowParts = parts[3].split(',')
-  result.leftElbowBend = parseFloat(elbowParts[0])
-  result.rightElbowBend = parseFloat(elbowParts[1])
-
-  # Hips
-  let hipParts = parts[4].split(',')
-  result.leftHipPitch = parseFloat(hipParts[0])
-  result.leftHipRoll = parseFloat(hipParts[1])
-  result.leftHipYaw = parseFloat(hipParts[2])
-  result.rightHipPitch = parseFloat(hipParts[3])
-  result.rightHipRoll = parseFloat(hipParts[4])
-  result.rightHipYaw = parseFloat(hipParts[5])
-
-  # Knees
-  let kneeParts = parts[5].split(',')
-  result.leftKneeBend = parseFloat(kneeParts[0])
-  result.rightKneeBend = parseFloat(kneeParts[1])
-
-  # Stance
-  let stanceParts = parts[6].split(',')
-  result.stanceWidth = parseFloat(stanceParts[0]) / 100.0  # Convert cm to m
-  result.facingAngle = parseFloat(stanceParts[1])
+    raise newException(ValueError, "Invalid MPN format: expected 7 parts, got " & $parts.len)
+  var g: seq[seq[float]]
+  for part in parts:
+    var vals: seq[float]
+    for x in part.split(','): vals.add parseFloat(x.strip)
+    g.add vals
+  proc need(i, n: int) =
+    if g[i].len < n:
+      raise newException(ValueError, "Invalid MPN format: group " & $(i + 1) & " needs " & $n & " values")
+  need(0, 2); need(1, 3); need(3, 2); need(5, 2); need(6, 1)
+  # Shoulders and hips: 6 values (flex, abd, rot per side) or legacy 4 (pitch, roll).
+  proc six(i: int): seq[float] =
+    if g[i].len >= 6: g[i][0 .. 5]
+    elif g[i].len == 4: @[g[i][0], g[i][1], 0.0, g[i][2], g[i][3], 0.0]
+    else: raise newException(ValueError, "Invalid MPN format: group " & $(i + 1) & " needs 4 or 6 values")
+  let sh = six(2)
+  let hp = six(4)
+  if v2:
+    result.leanForwardBack = g[0][0]
+    result.leanLeftRight = g[0][1]
+    result.leftShoulderPitch = sh[0]
+    result.rightShoulderPitch = sh[3]
+  else:
+    # Legacy: lean in cm on a ~60 cm lever, positive side lean = right;
+    # shoulder pitch negative = forward.
+    result.leanForwardBack = radToDeg(arctan2(g[0][0], 60.0))
+    result.leanLeftRight = -radToDeg(arctan2(g[0][1], 60.0))
+    result.leftShoulderPitch = -sh[0]
+    result.rightShoulderPitch = -sh[3]
+  result.hipRotation = g[1][0]
+  result.torsoRotation = g[1][1]
+  result.neckRotation = g[1][2]
+  result.leftShoulderRoll = sh[1]
+  result.leftShoulderYaw = sh[2]
+  result.rightShoulderRoll = sh[4]
+  result.rightShoulderYaw = sh[5]
+  result.leftElbowBend = g[3][0]
+  result.rightElbowBend = g[3][1]
+  result.leftHipPitch = hp[0]
+  result.leftHipRoll = hp[1]
+  result.leftHipYaw = hp[2]
+  result.rightHipPitch = hp[3]
+  result.rightHipRoll = hp[4]
+  result.rightHipYaw = hp[5]
+  result.leftKneeBend = g[5][0]
+  result.rightKneeBend = g[5][1]
+  result.stanceWidth = g[6][0] / 100.0
+  result.facingAngle = if g[6].len > 1: g[6][1] else: 90.0
 
 type
   LegBiomechanics = object
@@ -178,9 +178,10 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
   result = MannequinPose()
 
   # Base lean from balance and momentum
-  let balanceOffset = (1.0 - fighter.pos.balance) * 10.0  # cm
-  let momentumOffset = fighter.momentum.linear * 2.0      # cm
-  result.leanForwardBack = momentumOffset + balanceOffset
+  # Lean in degrees: off-balance and forward momentum tip the body forward.
+  let balanceOffset = (1.0 - fighter.pos.balance) * 10.0
+  let momentumOffset = fighter.momentum.linear * 2.0
+  result.leanForwardBack = 6.0 + momentumOffset + balanceOffset
 
   # Modify lean based on posture
   case fighter.posture:
@@ -189,10 +190,10 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
     discard
   of plCrouched:
     # Lower, more forward lean
-    result.leanForwardBack += 15.0  # Additional forward lean
+    result.leanForwardBack += 15.0
   of plGrounded:
     # Very low, almost horizontal
-    result.leanForwardBack += 50.0  # Heavy forward (horizontal)
+    result.leanForwardBack += 50.0  # close to horizontal
   of plJumping:
     # Airborne - less forward lean, more upright
     result.leanForwardBack -= 10.0
@@ -201,7 +202,7 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
     result.leanForwardBack += 5.0
 
   # Lean left/right from weight distribution
-  result.leanLeftRight = (fighter.biomech.weightDistribution - 0.5) * 8.0  # cm
+  result.leanLeftRight = -(fighter.biomech.weightDistribution - 0.5) * 8.0
 
   # Rotation from biomech (amplified by spinning)
   result.hipRotation = fighter.biomech.hipRotation
@@ -211,32 +212,28 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
     result.torsoRotation *= 1.3
   result.neckRotation = 0.0  # Not tracked in current FightState
 
-  # Shoulders - derive from extended state and stance
-  let guardHeight = 20.0  # Standard guard position
-
-  # Left shoulder
+  # Shoulders: an extended arm is a straight punch at shoulder height; otherwise
+  # the hands are up in guard (fists by the chin).
+  # Extended values are the viewer's aimed jab and cross (the arm is swung across
+  # to the centre line, because the hips are bladed).
   if fighter.leftArm.extended:
-    result.leftShoulderPitch = -30.0   # Forward punch (X-axis)
-    result.leftShoulderRoll = 10.0     # Slight raise (Z-axis)
-    result.leftShoulderYaw = 0.0       # No rotation for straight punch (Y-axis)
+    result.leftShoulderPitch = 103.0
+    result.leftShoulderRoll = 49.0
+    result.leftShoulderYaw = 5.0
   else:
-    result.leftShoulderPitch = guardHeight
-    result.leftShoulderRoll = 5.0
-    result.leftShoulderYaw = 0.0       # Neutral guard
-
-  # Right shoulder
+    result.leftShoulderPitch = 45.0
+    result.leftShoulderRoll = 14.0
+    result.leftShoulderYaw = 30.0
   if fighter.rightArm.extended:
-    result.rightShoulderPitch = -30.0
-    result.rightShoulderRoll = 10.0
-    result.rightShoulderYaw = 0.0
+    result.rightShoulderPitch = 103.0
+    result.rightShoulderRoll = 14.0
+    result.rightShoulderYaw = 5.0
   else:
-    result.rightShoulderPitch = guardHeight
-    result.rightShoulderRoll = 5.0
-    result.rightShoulderYaw = 45.0     # Rear guard rotated to protect jaw
-
-  # Elbows - extended = straight, guard = bent
-  result.leftElbowBend = if fighter.leftArm.extended: 10.0 else: 90.0
-  result.rightElbowBend = if fighter.rightArm.extended: 10.0 else: 90.0
+    result.rightShoulderPitch = 38.0
+    result.rightShoulderRoll = 16.0
+    result.rightShoulderYaw = 38.0
+  result.leftElbowBend = if fighter.leftArm.extended: 18.0 else: 118.0
+  result.rightElbowBend = if fighter.rightArm.extended: 19.0 else: 132.0
 
   # Stance width - set first because biomechanics depend on it
   result.stanceWidth = case fighter.pos.stance:
@@ -248,11 +245,11 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
   # Hips - derive from stance
   case fighter.pos.stance:
   of skOrthodox:
-    result.leftHipPitch = 10.0   # Front leg slightly forward
-    result.rightHipPitch = -5.0
+    result.leftHipPitch = 18.0   # lead leg forward, rear leg back
+    result.rightHipPitch = -18.0
   of skSouthpaw:
-    result.leftHipPitch = -5.0
-    result.rightHipPitch = 10.0
+    result.leftHipPitch = -18.0
+    result.rightHipPitch = 18.0
   of skWide:
     result.leftHipPitch = 0.0
     result.rightHipPitch = 0.0
@@ -309,72 +306,49 @@ proc fighterStateToMannequinPose*(fighter: Fighter): MannequinPose =
     result.rightKneeBend = 20.0
 
   # Leg extension for kicks - override with explicit angles
+  # An extended leg is a round-kick shape: raised sideways, knee nearly straight,
+  # turned in (internal rotation), with the hips turned over.
   if fighter.leftLeg.extended:
-    result.leftHipPitch = 45.0      # Lift leg forward (X-axis)
-    result.leftKneeBend = 30.0      # Partially extended
-    result.leftHipRoll = 20.0       # Abduction for side/round kick (Z-axis)
-    result.leftHipYaw = 45.0        # Rotation inward for round kick (Y-axis)
+    result.leftHipPitch = 25.0
+    result.leftKneeBend = 12.0
+    result.leftHipRoll = 80.0
+    result.leftHipYaw = 35.0
+    result.hipRotation = -80.0
   if fighter.rightLeg.extended:
-    result.rightHipPitch = 45.0
-    result.rightKneeBend = 30.0
-    result.rightHipRoll = 20.0
-    result.rightHipYaw = -45.0      # Negative = rotate inward (mirror of left)
+    result.rightHipPitch = 25.0
+    result.rightKneeBend = 12.0
+    result.rightHipRoll = 80.0
+    result.rightHipYaw = 35.0
+    result.hipRotation = 80.0
 
   # Facing angle (simplified - could be derived from pos.facing)
   result.facingAngle = 90.0  # Facing opponent
 
+# Reference poses exported from fpn_3d_viewer.html: the leg angles are its
+# foot-planting IK solution and the striking limb is its aimed (IK) solution at
+# the moment of impact, so loading these in the viewer reproduces its frames.
+const
+  guardMPN* = "v2:6,0.-35,-8,0.45,14,30,38,16,38.118,132.28,17,-17,7,18,-20.34,35.30"
+  jabMPN* = "v2:0,0.-45,-12,0.103,49,5,38,16,38.18,132.24,20,-27,3,19,-10.39,26.30"
+  crossMPN* = "v2:7,0.15,16,0.50,14,40,103,14,5.135,19.33,-16,33,-23,-2,-30.53,11.30"
+  roundKickMPN* = "v2:-6,24.102,18,0.45,14,30,38,16,38.118,132.29,-9,7,12,108,35.42,6.30"
+
 proc createNeutralPose*(): MannequinPose =
-  ## Create neutral fighting stance pose
-  result = MannequinPose(
-    leanForwardBack: 0.0,
-    leanLeftRight: 0.0,
-    hipRotation: 0.0,
-    torsoRotation: 0.0,
-    neckRotation: 0.0,
-    leftShoulderPitch: 20.0,   # Guard position
-    leftShoulderRoll: 5.0,
-    leftShoulderYaw: 0.0,      # Neutral (lead hand)
-    rightShoulderPitch: 20.0,
-    rightShoulderRoll: 5.0,
-    rightShoulderYaw: 45.0,    # Rotated (rear guard protects jaw)
-    leftElbowBend: 90.0,       # Bent at guard
-    rightElbowBend: 90.0,
-    leftHipPitch: 10.0,        # Orthodox stance
-    leftHipRoll: 0.0,
-    leftHipYaw: 0.0,           # No rotation
-    rightHipPitch: -5.0,
-    rightHipRoll: 0.0,
-    rightHipYaw: 0.0,
-    leftKneeBend: 15.0,        # Slight bend
-    rightKneeBend: 15.0,
-    stanceWidth: 0.40,         # 40cm
-    facingAngle: 90.0
-  )
+  ## Orthodox fighting stance (the viewer's guard).
+  mpnToPose(guardMPN)
 
 proc createJabPose*(): MannequinPose =
-  ## Create pose during a jab
-  result = createNeutralPose()
-  result.leanForwardBack = 8.0           # Leaning into punch
-  result.hipRotation = 8.0
-  result.torsoRotation = 12.0
-  result.leftShoulderPitch = -35.0       # Left arm extended
-  result.leftShoulderRoll = 8.0
-  result.leftElbowBend = 15.0            # Almost straight
-  result.leftHipPitch = 12.0             # Front leg forward
-  result.leftKneeBend = 20.0             # Slight more bend
+  ## Lead straight at the moment of impact, at punching range.
+  mpnToPose(jabMPN)
+
+proc createCrossPose*(): MannequinPose =
+  ## Rear straight at the moment of impact, at punching range.
+  mpnToPose(crossMPN)
 
 proc createRoundKickPose*(): MannequinPose =
-  ## Create pose during round kick
-  result = createNeutralPose()
-  result.leanLeftRight = -15.0           # Leaning away from kick
-  result.hipRotation = 60.0              # Heavy hip rotation
-  result.torsoRotation = 30.0
-  result.rightHipPitch = 80.0            # Right leg high (X-axis)
-  result.rightHipRoll = 45.0             # Leg abducted to side (Z-axis)
-  result.rightHipYaw = -60.0             # Leg rotates inward (Y-axis) - KEY for round kick!
-  result.rightKneeBend = 40.0            # Partially bent
-  result.leftKneeBend = 25.0             # Standing leg bent for balance
-  result.stanceWidth = 0.15              # Narrow (one leg up)
+  ## Rear round kick at impact, at kicking range: hips turned over, leg raised
+  ## sideways and turned in, body leaning away.
+  mpnToPose(roundKickMPN)
 
 when isMainModule:
   echo "=== MPN (Mannequin Position Notation) Test ==="
@@ -400,6 +374,6 @@ when isMainModule:
 
   echo "4. Parse and reconstruct:"
   let parsed = mpnToPose(jabMPN)
-  echo "   Reconstructed jab lean: ", parsed.leanForwardBack, "cm"
+  echo "   Reconstructed jab lean: ", parsed.leanForwardBack, "°"
   echo "   Reconstructed hip rotation: ", parsed.hipRotation, "°"
   echo "   Reconstructed left elbow: ", parsed.leftElbowBend, "°"
